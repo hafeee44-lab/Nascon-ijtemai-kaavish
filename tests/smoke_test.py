@@ -126,8 +126,116 @@ def test_standings_three_way():
     check("h2h matrix", b["h2h"]["t1"]["t2"] == {"played": 1, "points": 3, "scored": 2, "conceded": 0}, b["h2h"]["t1"])
 
 
+def test_checkout_burst():
+    import base64
+    import threading
+
+    call("POST", "/audit/v1/reset", {"stock": {"var-jersey-001-M": 1}})
+    barrier = threading.Barrier(20)
+    results = []
+
+    def buy(i):
+        barrier.wait()
+        results.append(call("POST", "/audit/v1/checkout", {
+            "order_id": f"ord-{i}", "customer_id": "cust-1", "items": [{"variant_id": "var-jersey-001-M", "quantity": 1}],
+            "discount_code": None, "payment": {"token": "tok_success"}}))
+
+    threads = [threading.Thread(target=buy, args=(i,)) for i in range(20)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    codes = sorted(r[0] for r in results)
+    check("burst: one 201, nineteen 409", codes == [201] + [409] * 19, codes)
+    s, b, _ = call("GET", "/audit/v1/inventory/var-jersey-001-M")
+    check("burst: stock 0 reserved 0", b == {"variant_id": "var-jersey-001-M", "stock": 0, "reserved": 0}, b)
+    ok = [r[1] for r in results if r[0] == 201][0]
+    check("receipt signature", ok["receipt"]["signature"] == sign(ok["order_id"], ok["receipt"]["payload"]), ok["receipt"]["payload"])
+    pdf = base64.b64decode(ok["receipt"]["pdf_base64"])
+    check("receipt is a PDF", pdf.startswith(b"%PDF"), pdf[:8])
+
+    call("POST", "/audit/v1/reset", {})
+    s, b, _ = call("POST", "/audit/v1/checkout", {"order_id": "o-d", "customer_id": "c\"<script>", "items": [{"variant_id": "var-jersey-001-L", "quantity": 2}],
+                                                 "discount_code": "WELCOME10", "payment": {"token": "tok_declined"}})
+    check("declined 402", s == 402 and b["error"]["code"] == "PAYMENT_DECLINED", b)
+    s, b, _ = call("GET", "/audit/v1/inventory/var-jersey-001-L")
+    check("declined releases stock", b["stock"] == 5 and b["reserved"] == 0, b)
+    body = {"order_id": "o-ok", "customer_id": "c\"<script>", "items": [{"variant_id": "var-jersey-001-L", "quantity": 2}],
+            "discount_code": "WELCOME10", "payment": {"token": "tok_success"}}
+    s, b, _ = call("POST", "/audit/v1/checkout", body)
+    check("discount math", s == 201 and b["subtotal_minor"] == 900000 and b["discount_minor"] == 90000 and b["total_minor"] == 810000, b)
+    s2, b2, _ = call("POST", "/audit/v1/checkout", body)
+    check("checkout replay 200", s2 == 200 and b2 == b, (s2,))
+    s, b, _ = call("POST", "/audit/v1/checkout", {**body, "items": [{"variant_id": "var-jersey-001-L", "quantity": 1}]})
+    check("duplicate order id 409", s == 409 and b["error"]["code"] == "DUPLICATE_ORDER_ID", b)
+    s, b, _ = call("POST", "/audit/v1/checkout", {**body, "order_id": "o-x", "discount_code": "NOPE"})
+    check("bad discount 400", s == 400 and b["error"]["code"] == "INVALID_DISCOUNT_CODE", b)
+
+
+def test_rbac():
+    call("POST", "/audit/v1/reset", {})
+    s, m, _ = call("POST", "/audit/v1/rbac-matrix")
+    t, c = m["tokens"], m["context"]
+    roles = ["super_admin", "league_organizer", "club_manager", "player", "viewer"]
+    A, D = 200, 403
+    cases = [
+        ("POST", "/audit/v1/rbac/tenants", [A, D, D, D, D]),
+        ("POST", f"/audit/v1/rbac/leagues/{c['own_league_id']}/fixtures", [A, A, D, D, D]),
+        ("POST", f"/audit/v1/rbac/leagues/{c['other_league_id']}/fixtures", [A, D, D, D, D]),
+        ("POST", f"/audit/v1/rbac/leagues/{c['foreign_league_id']}/fixtures", [A, D, D, D, D]),
+        ("POST", f"/audit/v1/rbac/clubs/{c['own_club_id']}/roster", [A, D, A, D, D]),
+        ("POST", f"/audit/v1/rbac/clubs/{c['other_club_id']}/products", [A, D, D, D, D]),
+        ("POST", f"/audit/v1/rbac/clubs/{c['foreign_club_id']}/roster", [A, D, D, D, D]),
+        ("PATCH", f"/audit/v1/rbac/players/{c['own_player_id']}", [A, D, A, A, D]),
+        ("PATCH", f"/audit/v1/rbac/players/{c['other_player_id']}", [A, D, D, D, D]),
+        ("PATCH", f"/audit/v1/rbac/players/{c['foreign_player_id']}", [A, D, D, D, D]),
+        ("GET", f"/audit/v1/rbac/clubs/{c['own_club_id']}", [A, A, A, A, A]),
+        ("GET", f"/audit/v1/rbac/clubs/{c['other_club_id']}", [A, A, A, A, A]),
+        ("GET", f"/audit/v1/rbac/clubs/{c['foreign_club_id']}", [A, D, D, D, D]),
+        ("GET", "/audit/v1/rbac/platform/config", [A, D, D, D, D]),
+    ]
+    bad = []
+    for method, path, expect in cases:
+        for role, want in zip(roles, expect):
+            s, b, _ = call(method, path, {} if method != "GET" else None, {"Authorization": f"Bearer {t[role]}"})
+            if s != want or (s == 403 and b["error"]["code"] != "FORBIDDEN"):
+                bad.append((method, path, role, s))
+    check("rbac matrix (70 cells)", not bad, bad)
+    s, b, _ = call("GET", "/audit/v1/rbac/platform/config")
+    check("no token 401", s == 401 and b["error"]["code"] == "UNAUTHENTICATED", b)
+    head, payload, sig = t["super_admin"].split(".")
+    s, _, _ = call("GET", "/audit/v1/rbac/platform/config", None, {"Authorization": f"Bearer {head}.{payload}.{sig[:-2]}xx"})
+    check("tampered 401", s == 401, s)
+    none_head = base64url(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+    s, _, _ = call("GET", "/audit/v1/rbac/platform/config", None, {"Authorization": f"Bearer {none_head}.{payload}."})
+    check("alg none 401", s == 401, s)
+    s, b, _ = call("POST", "/api/v1/auth/login", {"email": "manager@nascon.test", "password": "Nascon@26"})
+    check("demo login", s == 200 and b["user"]["role"] == "club_manager", b)
+
+
+def base64url(raw):
+    import base64
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def test_rate_limit_and_size():
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(30) as ex:
+        res = list(ex.map(lambda _: call("GET", "/api/v1/ping"), range(150)))
+    n429 = [r for r in res if r[0] == 429]
+    check("ping rate limited (>=40 x 429 with Retry-After)", len(n429) >= 40 and all("Retry-After" in r[2] for r in n429), len(n429))
+    time.sleep(11)
+    s, b, _ = call("GET", "/api/v1/ping")
+    check("ping recovers after 11 s", s == 200 and b == {"pong": True}, (s, b))
+    s, b, _ = call("POST", "/audit/v1/sports", {"pad": "x" * (1024 * 1024 + 10)})
+    check("413 on >1MB", s == 413 and b["error"]["code"] == "PAYLOAD_TOO_LARGE", (s, b))
+
+
 if __name__ == "__main__":
     test_scoring()
     test_standings_three_way()
+    test_checkout_burst()
+    test_rbac()
+    if "--fast" not in sys.argv:
+        test_rate_limit_and_size()
     print(f"\n{len(FAILS)} failure(s)")
     sys.exit(1 if FAILS else 0)
