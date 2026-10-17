@@ -15,14 +15,11 @@
 ## ADR-5: Atomic conditional UPDATE for inventory
 **Context:** 20 simultaneous buyers on the last unit must produce exactly one order. **Decision:** Reserve with `UPDATE inventory SET stock = stock − q, reserved = reserved + q WHERE variant_id = $1 AND stock >= q`, inside a transaction, locking variants in sorted order, plus `CHECK (stock >= 0)`. Payment failures release the reservation. **Consequences:** Overselling is impossible at the database level, without distributed locks.
 
-## ADR-5b: Domain events fan out to a durable queue and a realtime bus
+## ADR-6: Domain events fan out to a durable queue and a realtime bus
 **Context:** Order transitions must reach an internal queue; match status and pinned products must reach connected clients live. **Decision:** One `DomainEvents.emit()` publishes after commit to Redis Streams (`XADD domain-events`, for workers) and to an in-process bus that `GET /api/v1/stream` fans out as Server-Sent Events. **Consequences:** One publish call serves both needs. SSE is one-way and proxy-friendly; a queue outage never fails a request.
 
-## ADR-6: Policy-as-code RBAC with stateless JWTs
+## ADR-7: Policy-as-code RBAC with stateless JWTs
 **Context:** Five roles, strict tenant isolation, 70-cell negative matrix. **Decision:** One pure `can(principal, action, target)` function; tenant mismatch denies before any role logic; super-admin bypasses. HS256 JWTs verified with a pinned algorithm list (rejects `alg:none`), with 401 → 404 → 403 evaluation order. **Consequences:** The whole matrix is unit-tested cell by cell; adding a route means adding one action.
 
-## ADR-7: Offline-first mobile with a server-side conflict resolver
-**Context:** The app must work in airplane mode and survive force-close. **Decision:** The app caches one `GET /api/v1/bootstrap` snapshot and queues actions in the exact `offline-sync` format in on-device SQLite, written by a small native module. Sync replays through `POST /audit/v1/offline-sync`, which reuses the same domain services, so the same rules apply online and offline. **Consequences:** One code path for online and offline writes; conflicts resolved server-side (`server_wins`, `rebased_append`).
-
-## ADR-8: Zero third-party native dependencies in the app
-**Context:** Campus network too slow to download extra native libraries. **Decision:** A ~100-line Kotlin module provides SQLite storage, Android-Keystore AES-GCM token encryption and PDF saving; connectivity is detected by probing `/health`; navigation is a small JS stack. **Consequences:** The APK builds fully offline from cached Gradle artifacts. We own more code, but it is small and auditable.
+## ADR-8: Offline-first mobile with a server-side conflict resolver
+**Context:** The app must work in airplane mode and survive force-close. **Decision:** The app caches one `GET /api/v1/bootstrap` snapshot and queues actions in the exact `offline-sync` format in on-device SQLite, written by a small native module. Sync replays through `POST /audit/v1/offline-sync`, which reuses the same domain services, so the same rules apply online and offline. **Consequences:** One code path for online and offline writes; conflicts resolved server-side (`server_wins`, `rebased_append`). The native layer is a ~100-line Kotlin module (SQLite storage, Android-Keystore AES-GCM token encryption, PDF saving) with no third-party native dependencies, so the APK builds fully offline from cached Gradle artifacts; connectivity is detected by probing `/health`.
