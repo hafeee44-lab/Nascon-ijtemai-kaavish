@@ -1,16 +1,18 @@
 # Traceability Matrix
 
-| Req ID | Description | Source files | Automated tests |
+Unit tests: `./run_tests.sh` (vitest). End-to-end contract tests against a running stack: `python3 tests/smoke_test.py`.
+
+| Req ID | Requirement | Source files | Automated tests |
 |---|---|---|---|
-| FR-1.1 | Multi-sport taxonomy, event-sourced scoring | backend/src/db/seed.ts | backend/src/common/canonical.spec.ts |
-| FR-1.2 | League & tournament setup | _in progress_ | _in progress_ |
-| FR-1.3 | Fixture scheduling (RR, Swiss, SE, DE) | _in progress_ | _in progress_ |
-| FR-1.4 | Standings & tie-breakers | _in progress_ | _in progress_ |
-| FR-2.1 | Club profiles, tenant isolation | backend/src/db/seed.ts | _in progress_ |
-| FR-2.2 | Roster & player registry | _in progress_ | _in progress_ |
-| FR-2.3 | Merchandise store | _in progress_ | _in progress_ |
-| FR-5.1 | Five-tier RBAC | _in progress_ | _in progress_ |
-| NFR-3 | Concurrency correctness | _in progress_ | _in progress_ |
-| NFR-4 | Offline tolerance | _in progress_ | _in progress_ |
-| NFR-5 | Security | backend/src/main.ts, backend/src/common/error.filter.ts | _in progress_ |
-| NFR-7 | Reproducibility | docker-compose.yml, backend/Dockerfile | _in progress_ |
+| FR-1.1 | Multi-sport taxonomy as data; mystery sport via `POST /audit/v1/sports`; event-sourced scoring with signed compensating events | `backend/src/sports/sport-config.ts`, `backend/src/sports/sports.controller.ts`, `backend/src/scoring/projection.ts`, `backend/src/scoring/events.service.ts`, `backend/src/scoring/events.controller.ts`, `backend/src/common/canonical.ts`, `backend/src/db/seed.ts` | `backend/src/scoring/projection.spec.ts`, `backend/src/common/canonical.spec.ts`, `tests/smoke_test.py::test_scoring` |
+| FR-1.2 | League setup (fixtures, points, tie-break config, qualification spots) | `backend/src/standings/leagues.controller.ts` | `tests/smoke_test.py::test_standings_three_way` |
+| FR-1.3 | Scheduling: round robin (circle method, byes, withdrawals), Swiss (Buchholz, optimal rematch-free pairing), single and double elimination (bracket reset); match state machine | `backend/src/fixtures/round-robin.ts`, `backend/src/fixtures/swiss.ts`, `backend/src/fixtures/brackets.ts`, `backend/src/fixtures/fixtures.controller.ts`, `backend/src/scoring/events.service.ts` (state machine) | `backend/src/fixtures/fixtures.spec.ts`, `tests/smoke_test.py::test_scoring` |
+| FR-1.4 | Standings: configurable points, recursive tie-breakers incl. 3-way H2H mini-league, NRR/map differentials, clinched/eliminated, drawing of lots | `backend/src/standings/standings.ts`, `backend/src/standings/leagues.controller.ts` | `backend/src/standings/standings.spec.ts`, `tests/smoke_test.py::test_standings_three_way` |
+| FR-2.1 | Club profiles (venue, social, staff, history, roster), white-label tenants, tenant isolation | `backend/src/db/seed.ts`, `backend/src/db/demo-seed.ts`, `backend/src/mobile/mobile.controller.ts`, `backend/src/rbac/policy.ts` | `backend/src/rbac/policy.spec.ts` |
+| FR-2.2 | Roster: transfer / loan (auto-return) / release; window, squad size, one registration, position minimums; immutable audit trail | `backend/src/roster/roster.service.ts`, `backend/src/roster/roster.controller.ts` | `backend/src/roster/roster.spec.ts`, `tests/smoke_test.py::test_roster_and_sync` |
+| FR-2.3 | Store: variants, discount codes, mock gateway (authorize/capture/decline), order events to the queue, signed PDF receipts | `backend/src/store/store.service.ts`, `backend/src/store/receipt-pdf.ts`, `backend/src/queue/domain-events.ts` | `backend/src/store/store.spec.ts`, `tests/smoke_test.py::test_checkout_burst` |
+| FR-5.1 | Five-tier RBAC as policy-as-code, JWT auth, negative authorization tests for every boundary | `backend/src/rbac/policy.ts`, `backend/src/rbac/auth.service.ts`, `backend/src/rbac/rbac.controller.ts` | `backend/src/rbac/policy.spec.ts`, `tests/smoke_test.py::test_rbac` |
+| NFR-3 | Concurrency: 20 buyers on the last unit → exactly one order, no negative stock | `backend/src/store/store.service.ts` (atomic conditional `UPDATE`), `backend/src/db/db.service.ts` (`CHECK (stock >= 0)`) | `backend/src/store/store.spec.ts`, `tests/smoke_test.py::test_checkout_burst` |
+| NFR-4 | Offline tolerance: local SQLite cache, persistent action queue, conflict-resolving sync | `mobile/App.tsx`, `mobile/src/storage.ts`, `mobile/android/app/src/main/java/com/nasconapp/NasconStoreModule.kt`, `backend/src/sync/offline-sync.service.ts` | `tests/smoke_test.py::test_roster_and_sync` |
+| NFR-5 | Security: Keystore token storage, JWT verification (no alg:none), rate limiting, input validation, 1 MB body limit, no 5xx leakage | `backend/src/main.ts`, `backend/src/common/error.filter.ts`, `backend/src/common/validate.ts`, `backend/src/rbac/rate-limiter.ts`, `backend/src/rbac/auth.service.ts`, `mobile/android/app/src/main/java/com/nasconapp/NasconStoreModule.kt` | `backend/src/rbac/policy.spec.ts`, `tests/smoke_test.py::test_rate_limit_and_size` |
+| NFR-7 | Reproducibility: one command brings up and seeds the whole backend | `docker-compose.yml`, `backend/Dockerfile`, `backend/src/core/core.controller.ts`, `backend/src/db/seed.ts` | `tests/smoke_test.py` (runs against `docker compose up -d --build`) |
