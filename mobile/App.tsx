@@ -753,7 +753,7 @@ const s = StyleSheet.create({
   bigScore: { fontSize: 40, fontWeight: '900', marginHorizontal: 10 },
   price: { fontSize: 20, fontWeight: '800', marginTop: 4 },
   qty: { fontSize: 20, fontWeight: '700', marginHorizontal: 12, color: C.text },
-  badge: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start' },
+  badge: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start', marginLeft: 8 },
   badgeText: { fontSize: 13, fontWeight: '700' },
   empty: { padding: 32, alignItems: 'center' },
   timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', minHeight: 48 },
