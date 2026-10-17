@@ -211,6 +211,66 @@ def test_rbac():
     check("demo login", s == 200 and b["user"]["role"] == "club_manager", b)
 
 
+def test_roster_and_sync():
+    call("POST", "/audit/v1/reset", {})
+    setup = {"league": {"league_id": "lg-r1", "tenant_id": "tenant-alpha", "sport_id": "football",
+                        "transfer_window": {"open": "2026-09-01", "close": "2026-09-30"}, "max_squad_size": 3, "required_positions": {"gk": 1}},
+             "squads": [{"squad_id": "sq-a", "club_id": "club-a", "tenant_id": "tenant-alpha", "name": "A"},
+                        {"squad_id": "sq-b", "club_id": "club-b", "tenant_id": "tenant-alpha", "name": "B"},
+                        {"squad_id": "sq-x", "club_id": "club-x", "tenant_id": "tenant-beta", "name": "X"}],
+             "players": [{"player_id": "p1", "name": "Ali", "position": "gk", "squad_id": "sq-a", "role": "captain"},
+                         {"player_id": "p2", "name": "Bilal", "position": "df", "squad_id": "sq-a", "role": "starter"},
+                         {"player_id": "p3", "name": "Cam", "position": "df", "squad_id": "sq-b", "role": "starter"}],
+             "matches_in_progress": [{"match_id": "m-live", "home_squad_id": "sq-a", "away_squad_id": "sq-b"}]}
+    s, b, _ = call("POST", "/audit/v1/roster/setup", setup)
+    check("roster setup", s == 201 and b["squad_counts"] == {"sq-a": 2, "sq-b": 1, "sq-x": 0}, b)
+
+    def tr(rid, **kw):
+        body = {"request_id": rid, "league_id": "lg-r1", "player_id": "p2", "type": "transfer", "from_squad_id": "sq-a",
+                "to_squad_id": "sq-b", "effective_date": "2026-09-30", "loan_end_date": None, "reason": "r", "requested_by": "u1"}
+        body.update(kw)
+        return call("POST", "/audit/v1/roster/transfer", body)
+
+    s, b, _ = tr("t0", to_squad_id="sq-x")
+    check("cross tenant 409", s == 409 and b["error"]["code"] == "CROSS_TENANT_TRANSFER", b)
+    s, b, _ = tr("t1", effective_date="2026-10-01")
+    check("window closed 409", s == 409 and b["error"]["code"] == "TRANSFER_WINDOW_CLOSED", b)
+    s, b, _ = tr("t2", player_id="p1")
+    check("min position 409", s == 409 and b["error"]["code"] == "MIN_POSITION_VIOLATION", b)
+    s, b, _ = tr("t3", type="loan", loan_end_date="2026-12-31")
+    check("loan deferred (last day, live match)", s == 201 and b["state"] == "deferred_until_match_end" and b["blocking_match_id"] == "m-live"
+          and b["registration"]["parent_squad_id"] == "sq-a", b)
+    s2, b2, _ = tr("t3", type="loan", loan_end_date="2026-12-31")
+    check("transfer replay 200", s2 == 200 and b2 == b, s2)
+    s, b, _ = tr("t4", from_squad_id="sq-b", to_squad_id="sq-a", effective_date="2026-09-30")
+    check("on loan 409", s == 409 and b["error"]["code"] == "PLAYER_ON_LOAN", b)
+    s, b, _ = call("GET", "/audit/v1/roster/history/p2?as_of=2027-01-05")
+    s, b, _ = call("GET", "/audit/v1/roster/history/p2?as_of=2027-01-05")
+    acts = [h["action"] for h in b["history"]]
+    check("loan auto-return once", s == 200 and acts == ["loan", "loan_return"] and b["current_squad_id"] == "sq-a", b)
+
+    # offline sync
+    ev("o1", "om", "match_init", {"sport_id": "football", "home_team_id": "t1", "away_team_id": "t2"})
+    ev("o2", "om", "match_start")
+    body = {"device_id": "dev-1", "actions": [
+        {"action_id": "a2", "type": "roster_transfer", "queued_at": "2026-10-17T11:01:00Z", "base_version": 0,
+         "payload": {"request_id": "tr-x", "league_id": "lg-r1", "player_id": "p3", "type": "transfer", "from_squad_id": "sq-b",
+                     "to_squad_id": "sq-a", "effective_date": "2026-09-15", "loan_end_date": None, "reason": "x", "requested_by": "u"}},
+        {"action_id": "a1", "type": "score_event", "queued_at": "2026-10-17T11:00:00Z", "base_version": 1,
+         "payload": {"event_id": "o3", "match_id": "om", "type": "score", "payload": {"team_id": "t1", "event_type": "goal"}}},
+        {"action_id": "a3", "type": "score_event", "queued_at": "2026-10-17T11:02:00Z", "base_version": 9,
+         "payload": {"event_id": "o4", "match_id": "om", "type": "score", "payload": {"team_id": "t1", "event_type": "goal"}}}]}
+    s, b, _ = call("POST", "/audit/v1/offline-sync", body)
+    r = {x["action_id"]: x for x in b["results"]}
+    check("sync rebased score", r["a1"]["status"] == "applied" and r["a1"]["resolution"] == "rebased_append" and r["a1"]["server_version"] == 3
+          and r["a1"]["processed_order"] == 1 and r["a1"]["signature"] == sign("o3", {"team_id": "t1", "event_type": "goal"}), r["a1"])
+    check("sync roster applied", r["a2"]["status"] == "applied" and r["a2"]["processed_order"] == 2, r["a2"])
+    check("sync invalid base version", r["a3"]["error_code"] == "INVALID_BASE_VERSION" and r["a3"]["resolution"] == "server_wins", r["a3"])
+    check("sync results in request order", [x["action_id"] for x in b["results"]] == ["a2", "a1", "a3"], b["results"])
+    s, b, _ = call("POST", "/audit/v1/offline-sync", body)
+    check("sync resend all duplicate", all(x["status"] == "duplicate" for x in b["results"]), b)
+
+
 def base64url(raw):
     import base64
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -235,6 +295,7 @@ if __name__ == "__main__":
     test_standings_three_way()
     test_checkout_burst()
     test_rbac()
+    test_roster_and_sync()
     if "--fast" not in sys.argv:
         test_rate_limit_and_size()
     print(f"\n{len(FAILS)} failure(s)")
