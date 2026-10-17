@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CoreController } from './core/core.controller.js';
 import { Db } from './db/db.service.js';
+import { FixturesController } from './fixtures/fixtures.controller.js';
 import { DomainEvents } from './queue/domain-events.js';
 import { AuthService } from './rbac/auth.service.js';
 import { RbacController } from './rbac/rbac.controller.js';
@@ -19,7 +20,7 @@ import { OfflineSyncService } from './sync/offline-sync.service.js';
   imports: [],
   controllers: [
     CoreController, SportsController, EventsController, LeaguesController, StoreController, RbacController,
-    RosterController, OfflineSyncController,
+    RosterController, OfflineSyncController, FixturesController,
   ],
   providers: [Db, EventsService, StoreService, DomainEvents, AuthService, RosterService, OfflineSyncService],
 })
