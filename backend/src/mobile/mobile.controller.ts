@@ -48,7 +48,7 @@ export class MobileController {
 
     return {
       me, tenant, leagues: leagues.map((l) => ({ league_id: l.league_id, name: l.name, season: l.season, sport_id: l.sport_id })),
-      fixtures, standings, clubs: clubProfiles, products, roster_league_id: 'demo-roster', fetched_at: new Date().toISOString(),
+      fixtures, standings, clubs: clubProfiles, products, sports: await this.db.list('sport'), roster_league_id: 'demo-roster', fetched_at: new Date().toISOString(),
     };
   }
 
