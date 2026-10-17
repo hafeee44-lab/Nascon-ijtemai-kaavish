@@ -3,6 +3,7 @@ import { ApiError, conflict, notFound, validationError } from '../common/api-err
 import { canonical, sign } from '../common/canonical.js';
 import { isId, isInt, isObj, isStr } from '../common/validate.js';
 import { Db, Tx } from '../db/db.service.js';
+import { DomainEvents } from '../queue/domain-events.js';
 import type { SportConfig } from '../sports/sport-config.js';
 import { MatchInfo, Projection, project, scoringLimit, StoredEvent } from './projection.js';
 
@@ -15,7 +16,7 @@ export interface EventResult {
 
 @Injectable()
 export class EventsService {
-  constructor(private readonly db: Db) {}
+  constructor(private readonly db: Db, private readonly domainEvents: DomainEvents) {}
 
   validate(b: any) {
     if (!isObj(b)) throw validationError(['body']);
@@ -72,7 +73,9 @@ export class EventsService {
     const replay = await this.replay(request);
     if (replay) return replay;
     try {
-      return await this.db.tx((c) => this.appendTx(c, request));
+      const r = await this.db.tx((c) => this.appendTx(c, request));
+      this.publish(r);
+      return r;
     } catch (e: any) {
       // Two identical requests raced: the loser sees the unique violation and replays.
       if (e?.code === '23505') {
@@ -81,6 +84,14 @@ export class EventsService {
       }
       throw e;
     }
+  }
+
+  // After commit: realtime clients and the internal queue learn about the new event.
+  private publish(r: EventResult) {
+    const { event_id, match_id, type, sequence } = r.body;
+    void this.domainEvents.emit('match.event_appended', { match_id, event_id, type, sequence });
+    if (type === 'match_init' || type === 'match_start' || type === 'match_end')
+      void this.domainEvents.emit('match.status_changed', { match_id, status: type === 'match_init' ? 'upcoming' : type === 'match_start' ? 'in_progress' : 'completed' });
   }
 
   private async replay(request: any): Promise<EventResult | null> {

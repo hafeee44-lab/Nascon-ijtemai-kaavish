@@ -197,8 +197,9 @@ export function doubleElim(teams: string[], params: { bracket_reset?: boolean; r
     const required = gf1Done ? gf1.winner === gf1.away : null;
     const g2 = b.nodes.get('GF2')!;
     const res = applied.get('GF2') ?? null;
-    const home = gf1Done ? gf1.winner : null;
-    const away = gf1Done ? gf1.loser : null;
+    // GF2 is the same pairing as GF1 (spec 5.7-D), so mirror its sides exactly.
+    const home = gf1.home;
+    const away = gf1.away;
     grand_final.push({
       match_id: 'GF2', bracket: 'grand_final', round: 2, index: 1, home, away,
       home_seed: b.seedOf(home), away_seed: b.seedOf(away), bye: false,

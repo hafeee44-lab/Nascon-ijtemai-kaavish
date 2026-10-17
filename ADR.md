@@ -15,6 +15,9 @@
 ## ADR-5: Atomic conditional UPDATE for inventory
 **Context:** 20 simultaneous buyers on the last unit must produce exactly one order. **Decision:** Reserve with `UPDATE inventory SET stock = stock − q, reserved = reserved + q WHERE variant_id = $1 AND stock >= q`, inside a transaction, locking variants in sorted order, plus `CHECK (stock >= 0)`. Payment failures release the reservation. **Consequences:** Overselling is impossible at the database level, without distributed locks.
 
+## ADR-5b: Domain events fan out to a durable queue and a realtime bus
+**Context:** Order transitions must reach an internal queue; match status and pinned products must reach connected clients live. **Decision:** One `DomainEvents.emit()` publishes after commit to Redis Streams (`XADD domain-events`, for workers) and to an in-process bus that `GET /api/v1/stream` fans out as Server-Sent Events. **Consequences:** One publish call serves both needs. SSE is one-way and proxy-friendly; a queue outage never fails a request.
+
 ## ADR-6: Policy-as-code RBAC with stateless JWTs
 **Context:** Five roles, strict tenant isolation, 70-cell negative matrix. **Decision:** One pure `can(principal, action, target)` function; tenant mismatch denies before any role logic; super-admin bypasses. HS256 JWTs verified with a pinned algorithm list (rejects `alg:none`), with 401 → 404 → 403 evaluation order. **Consequences:** The whole matrix is unit-tested cell by cell; adding a route means adding one action.
 

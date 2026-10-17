@@ -405,7 +405,8 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
   }, [id, server, token, net]);
 
   const summary = boot?.fixtures?.find((f: any) => f?.match_id === id);
-  const sport = boot?.sports?.find((x: any) => x.sport_id === (m?.sport_id ?? 'football'));
+  const leagueSport = boot?.leagues?.find((l: any) => l.league_id === (m?.league_id ?? summary?.league_id))?.sport_id;
+  const sport = boot?.sports?.find((x: any) => x.sport_id === (m?.sport_id ?? leagueSport));
   const canScore = user.role === 'super_admin' || (user.role === 'league_organizer' && user.league_ids.includes(m?.league_id ?? summary?.league_id));
   const status = m?.status ?? summary?.status ?? 'upcoming';
   const pendingHere = queue.filter((q: any) => q.action.payload?.match_id === id);
@@ -449,7 +450,7 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
                 <View key={team} style={{ marginBottom: 8 }}>
                   <Text style={s.label}>{teamName(team)}</Text>
                   <View style={s.row}>
-                    {Object.keys(sport?.scoring_events ?? { goal: {} }).map((ev) => (
+                    {Object.keys(sport?.scoring_events ?? {}).map((ev) => (
                       <Btn key={ev} small color={primary} label={`+ ${ev.replace(/_/g, ' ')}`} onPress={() => send('score', { team_id: team, event_type: ev }, `Add ${ev.replace(/_/g, ' ')} for ${teamName(team)}`)} />
                     ))}
                   </View>
@@ -474,7 +475,7 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
           {(m?.events ?? []).slice().reverse().map((e: any) => (
             <View key={e.event_id} style={s.timelineRow}>
               <Text style={[s.timelineText, e.compensated && s.struck]}>
-                {e.type === 'score' ? `⚽ ${e.payload.event_type.replace(/_/g, ' ')}: ${teamName(e.payload.team_id)}`
+                {e.type === 'score' ? `● ${e.payload.event_type.replace(/_/g, ' ')}: ${teamName(e.payload.team_id)}`
                   : e.type === 'compensation' ? `↩ Correction: ${e.payload.reason ?? ''}`
                   : e.type === 'discipline' ? `🟨 Discipline: ${teamName(e.payload.team_id)} (${e.payload.points})`
                   : e.type.replace(/_/g, ' ')}

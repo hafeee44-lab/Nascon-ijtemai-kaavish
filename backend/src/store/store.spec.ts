@@ -52,3 +52,21 @@ describe('store checkout (NFR-3)', () => {
     expect(await code(svc.inventory('nope'))).toBe('VARIANT_NOT_FOUND');
   });
 });
+
+import { allowedNext, transition } from './order-status.js';
+
+describe('order lifecycle (FR-2.3)', () => {
+  it('allows the forward path and restocks on cancel/refund', () => {
+    expect(transition('paid', 'packed')).toEqual({ to: 'packed', restock: false });
+    expect(transition('packed', 'shipped').to).toBe('shipped');
+    expect(transition('shipped', 'delivered').to).toBe('delivered');
+    expect(transition('delivered', 'refunded')).toEqual({ to: 'refunded', restock: true });
+    expect(transition('paid', 'cancelled').restock).toBe(true);
+    expect(allowedNext('refunded')).toEqual([]);
+  });
+  it('rejects illegal and unknown transitions', () => {
+    expect(() => transition('shipped', 'packed')).toThrow(ApiError);
+    expect(() => transition('cancelled', 'paid')).toThrow(ApiError);
+    expect(() => transition('paid', 'teleported')).toThrow(ApiError);
+  });
+});

@@ -6,7 +6,7 @@ const AREAS = {
   fixtures: ['src/fixtures/round-robin.ts', 'src/fixtures/swiss.ts', 'src/fixtures/brackets.ts'],
   scoring: ['src/scoring/projection.ts', 'src/sports/sport-config.ts', 'src/common/canonical.ts'],
   standings: ['src/standings/standings.ts'],
-  store: ['src/store/receipt-pdf.ts', 'src/store/store.service.ts'],
+  store: ['src/store/receipt-pdf.ts', 'src/store/store.service.ts', 'src/store/order-status.ts'],
   roster: ['src/roster/roster.service.ts'],
   rbac: ['src/rbac/policy.ts', 'src/rbac/rate-limiter.ts', 'src/rbac/auth.service.ts'],
 };

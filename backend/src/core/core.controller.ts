@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { validationError } from '../common/api-error.js';
 import { Db } from '../db/db.service.js';
-import { resetAll } from '../db/seed.js';
+import { BASE_SPORTS, resetAll } from '../db/seed.js';
 
 const DEFAULT_STOCK = { 'var-jersey-001-M': 1, 'var-jersey-001-L': 5 };
 
@@ -41,7 +41,7 @@ export class CoreController {
     return {
       status: 'reset_complete',
       seed,
-      sports: ['football', 'basketball', 'cricket', 'esports'],
+      sports: BASE_SPORTS.map((x) => x.sport_id),
       tenants: ['tenant-alpha', 'tenant-beta'],
       stock,
     };
