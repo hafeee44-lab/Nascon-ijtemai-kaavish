@@ -3,7 +3,7 @@ import { Post } from '@nestjs/common';
 import type { Response } from 'express';
 import { Db } from '../db/db.service.js';
 import { AuthService } from '../rbac/auth.service.js';
-import { RosterLeague, squadOn } from '../roster/roster.service.js';
+import { RosterLeague, RosterService, squadOn } from '../roster/roster.service.js';
 import { project } from '../scoring/projection.js';
 import { EventsService } from '../scoring/events.service.js';
 import type { SportConfig } from '../sports/sport-config.js';
@@ -16,8 +16,15 @@ import { today } from '../common/validate.js';
 export class MobileController {
   constructor(
     private readonly db: Db, private readonly auth: AuthService, private readonly events: EventsService,
-    private readonly leagues: LeaguesController, private readonly store: StoreService,
+    private readonly leagues: LeaguesController, private readonly store: StoreService, private readonly roster: RosterService,
   ) {}
+
+  // Player screen: immutable roster audit trail (FR-2.2).
+  @Get('players/:id/history')
+  playerHistory(@Headers('authorization') authz: string, @Param('id') id: string) {
+    this.auth.verify(authz);
+    return this.roster.history(id);
+  }
 
   @Get('bootstrap')
   async bootstrap(@Headers('authorization') authz: string) {

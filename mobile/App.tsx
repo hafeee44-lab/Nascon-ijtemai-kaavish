@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, BackHandler, FlatList, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, BackHandler, FlatList, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { ApiFailure, friendly, nowIso, pkr, request, today, uid } from './src/api';
@@ -13,7 +13,8 @@ type QueuedAction = { action: any; label: string };
 type SyncLine = { label: string; status: string; message: string };
 type Route =
   | { name: 'tabs' } | { name: 'match'; id: string } | { name: 'product'; id: string } | { name: 'cart' }
-  | { name: 'receipt'; order: any } | { name: 'club'; id: string } | { name: 'move'; playerId: string } | { name: 'settings' };
+  | { name: 'receipt'; order: any } | { name: 'club'; id: string } | { name: 'move'; playerId: string } | { name: 'settings' }
+  | { name: 'player'; id: string } | { name: 'orders' };
 type Tab = 'fixtures' | 'standings' | 'store' | 'club' | 'sync';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -68,6 +69,7 @@ function Root() {
   const [tab, setTab] = useState<Tab>('fixtures');
   const [cart, setCart] = useState<{ variant_id: string; quantity: number; name: string; price: number }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
   const syncing = useRef(false);
 
   const primary = boot?.tenant?.colors?.primary ?? '#1d4ed8';
@@ -85,6 +87,7 @@ function Root() {
       setBoot(await getJson('bootstrap', null));
       setQueue(await getJson<QueuedAction[]>('queue', []));
       setLastSync(await getJson<SyncLine[]>('lastSync', []));
+      setOrders(await getJson<any[]>('orders', []));
       let d = await getJson<string>('device_id', '');
       if (!d) { d = uid('dev'); await setJson('device_id', d); }
       setDeviceId(d);
@@ -178,7 +181,8 @@ function Root() {
 
   const route = stack[stack.length - 1];
   const teamName = (id: string) => boot?.clubs?.find((c: any) => c.club_id === id)?.name ?? id;
-  const ctx = { server, token, user, boot, net, primary, push, pop, teamName, enqueue, say, cart, setCart, queue, lastSync, runSync, refresh, deviceId };
+  const saveOrder = async (o: any) => { const next = [o, ...orders].slice(0, 30); setOrders(next); await setJson('orders', next); };
+  const ctx = { server, token, user, boot, net, primary, push, pop, teamName, enqueue, say, cart, setCart, queue, lastSync, runSync, refresh, deviceId, setTab, orders, saveOrder };
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
@@ -208,6 +212,8 @@ function Root() {
         {route.name === 'receipt' && <Receipt {...ctx} order={route.order} />}
         {route.name === 'club' && <ClubProfile {...ctx} id={route.id} />}
         {route.name === 'move' && <MovePlayer {...ctx} playerId={route.playerId} />}
+        {route.name === 'player' && <PlayerScreen {...ctx} id={route.id} />}
+        {route.name === 'orders' && <OrdersScreen {...ctx} />}
         {route.name === 'settings' && (
           <Settings {...ctx} onServer={async (v: string) => { setServer(v); await setJson('server', v); say('Server address saved.'); }}
             onLogout={async () => { await secure.remove('token'); await removeKey('user'); setToken(null); setUser(null); }} />
@@ -219,7 +225,7 @@ function Root() {
           {([['fixtures', 'Fixtures', '📅'], ['standings', 'Standings', '🏆'], ['store', 'Store', '🛒'], ['club', 'Club', '🛡'], ['sync', 'Sync', '⇅']] as [Tab, string, string][]).map(([k, label, icon]) => (
             <Pressable key={k} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: tab === k }} onPress={() => setTab(k)} style={s.tab}>
               <Text style={[s.tabIcon]}>{icon}</Text>
-              <Text style={[s.tabText, tab === k && { color: primary, fontWeight: '700' }]}>{label}{k === 'sync' && queue.length ? ` (${queue.length})` : ''}</Text>
+              <Text style={[s.tabText, tab === k && { color: primary, fontWeight: '700' }]}>{label}{k === 'sync' && queue.length ? ` (${queue.length})` : ''}{k === 'store' && cart.length ? ` (${cart.length})` : ''}</Text>
             </Pressable>
           ))}
         </View>
@@ -281,23 +287,90 @@ function Login({ server, onServer, onDone }: { server: string; onServer: (v: str
   );
 }
 
-// ---------- Fixtures ----------
-function Fixtures({ boot, teamName, push, user }: any) {
+// ---------- Fixtures (FotMob-style: role "Today" card, filter chips, search, day groups, pull-to-refresh) ----------
+const dayLabel = (iso: string | null) => {
+  if (!iso) return 'Date to be confirmed';
+  const d = new Date(iso);
+  const t = new Date();
+  const diff = Math.round((new Date(d.toDateString()).getTime() - new Date(t.toDateString()).getTime()) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === -1) return 'Yesterday';
+  if (diff === 1) return 'Tomorrow';
+  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+};
+
+function TodayCard({ boot, user, teamName, push, setTab, primary }: any) {
   const fixtures = (boot?.fixtures ?? []).filter(Boolean);
+  const live = fixtures.filter((f: any) => f.status === 'in_progress');
+  const club = boot?.clubs?.find((c: any) => c.club_id === user.club_id);
+  let title = `${live.length} match${live.length === 1 ? '' : 'es'} live now`;
+  let action: { label: string; go: () => void } | null = live[0] ? { label: 'Watch live match', go: () => push({ name: 'match', id: live[0].match_id }) } : null;
+  if (user.role === 'league_organizer') {
+    const mine = live.filter((f: any) => user.league_ids.includes(f.league_id));
+    title = mine.length ? `${mine.length} live match${mine.length === 1 ? '' : 'es'} to score in your league` : 'No live matches in your league right now';
+    action = mine[0] ? { label: 'Score live match', go: () => push({ name: 'match', id: mine[0].match_id }) } : null;
+  } else if (user.role === 'club_manager' && club) {
+    title = `${club.name}: ${club.roster?.length ?? 0} players registered`;
+    action = { label: 'Manage roster', go: () => setTab('club') };
+  } else if (user.role === 'player' && club) {
+    const next = fixtures.find((f: any) => f.status !== 'completed' && (f.home === club.club_id || f.away === club.club_id));
+    title = next ? `Your next match: ${teamName(next.home)} vs ${teamName(next.away)}, ${dayLabel(next.kickoff)}` : 'No upcoming matches for your club';
+    action = next ? { label: 'Open match', go: () => push({ name: 'match', id: next.match_id }) } : null;
+  }
+  return (
+    <View style={[s.card, { borderLeftWidth: 5, borderLeftColor: primary }]}>
+      <Muted>{ROLE_LABEL[user.role]} · Today</Muted>
+      <Text style={[s.body, { fontWeight: '700' }]}>{title}</Text>
+      {action && <Btn small color={primary} label={action.label} onPress={action.go} />}
+    </View>
+  );
+}
+
+function Fixtures(props: any) {
+  const { boot, teamName, push, refresh, net, primary } = props;
+  const [filter, setFilter] = useState<'all' | 'live' | 'upcoming' | 'results'>('all');
+  const [q, setQ] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const all = (boot?.fixtures ?? []).filter(Boolean);
+  const want = { all: () => true, live: (f: any) => f.status === 'in_progress', upcoming: (f: any) => f.status === 'upcoming', results: (f: any) => f.status === 'completed' }[filter];
+  const query = q.trim().toLowerCase();
+  const shown = all.filter(want).filter((f: any) => !query || `${teamName(f.home)} ${teamName(f.away)} ${f.venue ?? ''}`.toLowerCase().includes(query))
+    .sort((a: any, b: any) => (filter === 'results' ? (b.kickoff ?? '').localeCompare(a.kickoff ?? '') : (a.kickoff ?? '').localeCompare(b.kickoff ?? '')));
+  const rows: any[] = [];
+  let last = '';
+  for (const f of shown) {
+    const d = dayLabel(f.kickoff);
+    if (d !== last) { rows.push({ header: d, key: `h-${d}` }); last = d; }
+    rows.push({ ...f, key: f.match_id });
+  }
+  const counts = { all: all.length, live: all.filter((f: any) => f.status === 'in_progress').length, upcoming: all.filter((f: any) => f.status === 'upcoming').length, results: all.filter((f: any) => f.status === 'completed').length };
   return (
     <FlatList
       contentContainerStyle={s.list}
-      data={fixtures}
-      keyExtractor={(f: any) => f.match_id}
-      ListHeaderComponent={<H>Fixtures {user.role === 'league_organizer' ? '· tap a live match to score' : ''}</H>}
-      ListEmptyComponent={<Empty text={boot ? 'No matches yet.' : 'Connect to the server once to load fixtures.'} />}
+      data={rows}
+      keyExtractor={(r: any) => r.key}
+      refreshControl={<RefreshControl refreshing={refreshing} enabled={net !== 'offline'} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }} />}
+      ListHeaderComponent={
+        <View>
+          <TodayCard {...props} />
+          <TextInput style={s.input} value={q} onChangeText={setQ} placeholder="Search teams or venues" accessibilityLabel="Search fixtures by team or venue" />
+          <View style={[s.row, { marginTop: 6 }]}>
+            {(['all', 'live', 'upcoming', 'results'] as const).map((k) => (
+              <Btn key={k} small kind={filter === k ? 'solid' : 'outline'} color={primary} label={`${k === 'live' ? '● Live' : k[0].toUpperCase() + k.slice(1)} (${counts[k]})`} onPress={() => setFilter(k)} />
+            ))}
+          </View>
+          {boot?.fetched_at && <Muted>Updated {new Date(boot.fetched_at).toLocaleTimeString()}{net === 'offline' ? ' (saved copy)' : ' · pull down to refresh'}</Muted>}
+        </View>
+      }
+      ListEmptyComponent={<Empty text={!boot ? 'Connect to the server once to load fixtures.' : query ? `No matches for "${q}".` : filter === 'live' ? 'No matches are live right now.' : 'No matches here yet.'} />}
       renderItem={({ item: f }: any) => {
+        if (f.header) return <Text style={s.dayHeader} accessibilityRole="header">{f.header}</Text>;
         const [st, col] = STATUS[f.status] ?? [f.status, C.muted];
         return (
           <Card onPress={() => push({ name: 'match', id: f.match_id })} label={`${teamName(f.home)} versus ${teamName(f.away)}, ${st}`}>
             <View style={s.rowBetween}>
               <Badge text={st} color={col} />
-              <Muted>{f.kickoff ? new Date(f.kickoff).toLocaleString() : ''}</Muted>
+              <Muted>{f.kickoff ? new Date(f.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</Muted>
             </View>
             <View style={s.rowBetween}>
               <Text style={s.team} numberOfLines={1}>{teamName(f.home)}</Text>
@@ -316,6 +389,7 @@ function Fixtures({ boot, teamName, push, user }: any) {
 function MatchDetail({ id, server, token, net, boot, teamName, primary, user, enqueue, push, queue }: any) {
   const [m, setM] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [view, setView] = useState<'timeline' | 'h2h' | 'table'>('timeline');
   useEffect(() => {
     let alive = true;
     (async () => setM(await getJson(`match:${id}`, null)))();
@@ -388,24 +462,63 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
         </Card>
       )}
 
-      <Card>
-        <H>Timeline</H>
-        {(m?.events ?? []).length === 0 && <Muted>{m ? 'No events yet.' : 'Timeline available when online.'}</Muted>}
-        {(m?.events ?? []).slice().reverse().map((e: any) => (
-          <View key={e.event_id} style={s.timelineRow}>
-            <Text style={[s.timelineText, e.compensated && s.struck]}>
-              {e.type === 'score' ? `⚽ ${e.payload.event_type.replace(/_/g, ' ')}: ${teamName(e.payload.team_id)}`
-                : e.type === 'compensation' ? `↩ Correction: ${e.payload.reason ?? ''}`
-                : e.type === 'discipline' ? `🟨 Discipline: ${teamName(e.payload.team_id)} (${e.payload.points})`
-                : e.type.replace(/_/g, ' ')}
-              {e.compensated ? ' (corrected)' : ''}
-            </Text>
-            {canScore && ['score', 'discipline', 'tiebreak_winner'].includes(e.type) && !e.compensated && (
-              <Btn small kind="outline" color={C.bad} label="Undo" onPress={() => send('compensation', { compensates: e.event_id, reason: 'Corrected by organizer' }, 'Undo this event')} />
-            )}
-          </View>
+      <View style={[s.row, { marginBottom: 4 }]} accessibilityRole="tablist">
+        {([['timeline', 'Timeline'], ['h2h', 'Head-to-head'], ['table', 'Table']] as const).map(([k, l]) => (
+          <Btn key={k} small kind={view === k ? 'solid' : 'outline'} color={primary} label={l} onPress={() => setView(k)} />
         ))}
-      </Card>
+      </View>
+      {view === 'timeline' && (
+        <Card>
+          <H>Timeline</H>
+          {(m?.events ?? []).length === 0 && <Muted>{m ? 'No events yet.' : 'Timeline available when online.'}</Muted>}
+          {(m?.events ?? []).slice().reverse().map((e: any) => (
+            <View key={e.event_id} style={s.timelineRow}>
+              <Text style={[s.timelineText, e.compensated && s.struck]}>
+                {e.type === 'score' ? `⚽ ${e.payload.event_type.replace(/_/g, ' ')}: ${teamName(e.payload.team_id)}`
+                  : e.type === 'compensation' ? `↩ Correction: ${e.payload.reason ?? ''}`
+                  : e.type === 'discipline' ? `🟨 Discipline: ${teamName(e.payload.team_id)} (${e.payload.points})`
+                  : e.type.replace(/_/g, ' ')}
+                {e.compensated ? ' (corrected)' : ''}
+              </Text>
+              {canScore && ['score', 'discipline', 'tiebreak_winner'].includes(e.type) && !e.compensated && (
+                <Btn small kind="outline" color={C.bad} label="Undo" onPress={() => send('compensation', { compensates: e.event_id, reason: 'Corrected by organizer' }, 'Undo this event')} />
+              )}
+            </View>
+          ))}
+        </Card>
+      )}
+      {view === 'h2h' && (() => {
+        const st = boot?.standings?.find((x: any) => x.league_id === (m?.league_id ?? summary?.league_id));
+        const h = st?.h2h?.[home]?.[away];
+        const meetings = (boot?.fixtures ?? []).filter((f: any) => f && f.status === 'completed' && [f.home, f.away].includes(home) && [f.home, f.away].includes(away));
+        return (
+          <Card>
+            <H>Head-to-head this season</H>
+            {!h || h.played === 0 ? <Muted>These teams have not met yet this season.</Muted> : (
+              <Text style={s.body}>{teamName(home)}: {h.points} pts from {h.played} game(s), scored {h.scored}, conceded {h.conceded}</Text>
+            )}
+            {meetings.map((f: any) => <Muted key={f.match_id}>{teamName(f.home)} {f.home_score} – {f.away_score} {teamName(f.away)}</Muted>)}
+          </Card>
+        );
+      })()}
+      {view === 'table' && (() => {
+        const st = boot?.standings?.find((x: any) => x.league_id === (m?.league_id ?? summary?.league_id));
+        if (!st) return <Card><Muted>No league table for this match.</Muted></Card>;
+        return (
+          <Card>
+            <H>{st.name ?? 'League table'}</H>
+            {st.table.map((r: any) => {
+              const playing = r.team_id === home || r.team_id === away;
+              return (
+                <View key={r.team_id} style={[s.rowBetween, { minHeight: 40 }, playing && { backgroundColor: '#eef2ff' }]}>
+                  <Text style={[s.body, playing && { fontWeight: '800' }]}>{r.rank}. {teamName(r.team_id)}</Text>
+                  <Text style={[s.body, { fontWeight: '700' }]}>{r.points} pts</Text>
+                </View>
+              );
+            })}
+          </Card>
+        );
+      })()}
 
       {product && (
         <Card onPress={() => push({ name: 'product', id: product.product_id })} label={`Featured product ${product.name}`}>
@@ -421,8 +534,27 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
   );
 }
 
-// ---------- Standings ----------
-function Standings({ boot, teamName }: any) {
+// ---------- Standings (Sofascore-style: form guide, qualification legend, your club highlighted) ----------
+const FORM: Record<string, [string, string]> = { W: ['W', C.ok], D: ['D', C.muted], L: ['L', C.bad] };
+function formOf(fixtures: any[], team: string): string[] {
+  return fixtures.filter((f: any) => f && f.status === 'completed' && (f.home === team || f.away === team))
+    .sort((a: any, b: any) => (b.kickoff ?? '').localeCompare(a.kickoff ?? '')).slice(0, 5)
+    .map((f: any) => {
+      const mine = f.home === team ? f.home_score : f.away_score;
+      const theirs = f.home === team ? f.away_score : f.home_score;
+      return mine > theirs ? 'W' : mine < theirs ? 'L' : 'D';
+    });
+}
+function FormGuide({ form }: { form: string[] }) {
+  if (!form.length) return <Muted>No results yet</Muted>;
+  return (
+    <View style={s.row} accessibilityLabel={`Form, most recent first: ${form.map((x) => ({ W: 'win', D: 'draw', L: 'loss' } as any)[x]).join(', ')}`}>
+      {form.map((r, i) => <View key={i} style={[s.formChip, { backgroundColor: FORM[r][1] }]}><Text style={s.formText}>{FORM[r][0]}</Text></View>)}
+    </View>
+  );
+}
+
+function Standings({ boot, teamName, user, push, primary }: any) {
   const leagues = boot?.standings ?? [];
   const [i, setI] = useState(0);
   const st = leagues[i];
@@ -430,36 +562,55 @@ function Standings({ boot, teamName }: any) {
   return (
     <ScrollView contentContainerStyle={s.list}>
       <H>{st.name ?? st.league_id}</H>
-      <Muted>Top {st.qualification_spots} qualify for the playoffs</Muted>
-      {leagues.length > 1 && <View style={s.row}>{leagues.map((l: any, k: number) => <Btn key={l.league_id} small kind={k === i ? 'solid' : 'outline'} color="#1d4ed8" label={l.name ?? l.league_id} onPress={() => setI(k)} />)}</View>}
+      <Muted>Season {st.season ?? ''} · Top {st.qualification_spots} qualify for the playoffs · tap a team to open its club</Muted>
+      {leagues.length > 1 && <View style={s.row}>{leagues.map((l: any, k: number) => <Btn key={l.league_id} small kind={k === i ? 'solid' : 'outline'} color={primary} label={l.name ?? l.league_id} onPress={() => setI(k)} />)}</View>}
       <View style={[s.tr, s.th]}>
-        <Text style={[s.td, { flex: 0.5 }]}>#</Text><Text style={[s.td, { flex: 3 }]}>Team</Text>
-        <Text style={s.td}>P</Text><Text style={s.td}>W</Text><Text style={s.td}>D</Text><Text style={s.td}>L</Text><Text style={s.td}>GD</Text><Text style={[s.td, { fontWeight: '800' }]}>Pts</Text>
+        <Text style={[s.td, { flex: 0.5 }]}>#</Text><Text style={[s.td, { flex: 3, textAlign: 'left' }]}>Team</Text>
+        <Text style={s.td}>P</Text><Text style={s.td}>GD</Text><Text style={[s.td, { fontWeight: '800' }]}>Pts</Text>
       </View>
       {st.table.map((r: any) => {
         const [label, col] = STATUS[r.status] ?? [r.status, C.muted];
+        const mine = r.team_id === user.club_id;
+        const inZone = r.rank <= st.qualification_spots;
         return (
-          <View key={r.team_id} style={s.tr} accessibilityLabel={`Rank ${r.rank}, ${teamName(r.team_id)}, ${r.points} points, ${label}`}>
-            <Text style={[s.td, { flex: 0.5 }]}>{r.rank}</Text>
+          <Pressable key={r.team_id} accessibilityRole="button" onPress={() => push({ name: 'club', id: r.team_id })}
+            accessibilityLabel={`Rank ${r.rank}, ${teamName(r.team_id)}${mine ? ', your club' : ''}, ${r.points} points, ${label}`}
+            style={({ pressed }) => [s.tr, { borderLeftWidth: 5, borderLeftColor: inZone ? C.ok : 'transparent' }, mine && { backgroundColor: '#eef2ff' }, pressed && { opacity: 0.7 }]}>
+            <Text style={[s.td, { flex: 0.5, fontWeight: '700' }]}>{r.rank}</Text>
             <View style={{ flex: 3 }}>
-              <Text style={s.tdTeam} numberOfLines={1}>{teamName(r.team_id)}</Text>
-              <Text style={{ color: col, fontSize: 13 }}>{label}</Text>
+              <Text style={[s.tdTeam, mine && { color: primary }]} numberOfLines={1}>{teamName(r.team_id)}{mine ? ' · Your club' : ''}</Text>
+              <Text style={{ color: col, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+              <FormGuide form={formOf(boot.fixtures ?? [], r.team_id)} />
             </View>
-            <Text style={s.td}>{r.played}</Text><Text style={s.td}>{r.won}</Text><Text style={s.td}>{r.drawn}</Text><Text style={s.td}>{r.lost}</Text>
-            <Text style={s.td}>{r.diff}</Text><Text style={[s.td, { fontWeight: '800' }]}>{r.points}</Text>
-          </View>
+            <Text style={s.td}>{r.played}</Text><Text style={s.td}>{r.diff > 0 ? `+${r.diff}` : r.diff}</Text>
+            <Text style={[s.td, { fontWeight: '800', fontSize: 17 }]}>{r.points}</Text>
+          </Pressable>
         );
       })}
+      <Card>
+        <Text style={s.label}>Key</Text>
+        <Muted>Green bar on the left = playoff places (top {st.qualification_spots}).</Muted>
+        <Muted>✓ Qualified: guaranteed a playoff place · In contention: still possible · ✗ Out: can no longer qualify.</Muted>
+        <Muted>Form: W win, D draw, L loss (most recent first). Ties on points are broken by head-to-head results.</Muted>
+      </Card>
     </ScrollView>
   );
 }
 
 // ---------- Store ----------
-function Store({ boot, push, primary, cart }: any) {
+function Store({ boot, push, primary, cart, orders }: any) {
   const products = boot?.products ?? [];
   return (
     <FlatList contentContainerStyle={s.list} data={products} keyExtractor={(p: any) => p.product_id}
-      ListHeaderComponent={<View style={s.rowBetween}><H>Club store</H>{cart.length > 0 && <Btn small color={primary} label={`Cart (${cart.length})`} onPress={() => push({ name: 'cart' })} />}</View>}
+      ListHeaderComponent={
+        <View>
+          <View style={s.rowBetween}><H>Club store</H>{cart.length > 0 && <Btn small color={primary} label={`🛒 Cart (${cart.length})`} onPress={() => push({ name: 'cart' })} />}</View>
+          <View style={s.row}>
+            <Btn small kind="outline" color={primary} label={`My orders (${orders.length})`} onPress={() => push({ name: 'orders' })} />
+          </View>
+          <Muted>Official club merchandise · tap an item to choose a size</Muted>
+        </View>
+      }
       ListEmptyComponent={<Empty text="No products in the store yet." />}
       renderItem={({ item: p }: any) => (
         <Card onPress={() => push({ name: 'product', id: p.product_id })} label={`${p.name}, ${pkr(p.variants[0].price_minor)}`}>
@@ -502,7 +653,7 @@ function ProductScreen({ id, boot, primary, setCart, cart, push, say }: any) {
   );
 }
 
-function CartScreen({ cart, setCart, primary, server, token, net, push, refresh }: any) {
+function CartScreen({ cart, setCart, primary, server, token, net, push, refresh, saveOrder }: any) {
   const [code, setCode] = useState('');
   const [card, setCard] = useState('tok_success');
   const [busy, setBusy] = useState(false);
@@ -517,6 +668,7 @@ function CartScreen({ cart, setCart, primary, server, token, net, push, refresh 
           order_id: uid('ord'), customer_id: 'app-user', items: cart.map((c: any) => ({ variant_id: c.variant_id, quantity: c.quantity })),
           discount_code: code.trim() || null, payment: { token: card } } });
         setCart([]);
+        await saveOrder(order);
         refresh();
         push({ name: 'receipt', order });
       } catch (e: any) { setErr(e?.message ?? 'Payment failed.'); } finally { setBusy(false); }
@@ -564,12 +716,34 @@ function Receipt({ order, primary, say }: any) {
         <Text style={s.body}>Subtotal {pkr(p.subtotal_minor)}</Text>
         <Text style={s.body}>Discount −{pkr(p.discount_minor)}</Text>
         <Text style={[s.price, { color: primary }]}>Total {pkr(p.total_minor)}</Text>
+        <Text style={s.label}>Order progress</Text>
+        <View style={s.row} accessibilityLabel="Order progress: paid. Next: packed, shipped, delivered.">
+          {['Paid', 'Packed', 'Shipped', 'Delivered'].map((step, i) => (
+            <View key={step} style={[s.step, i === 0 && { backgroundColor: C.ok, borderColor: C.ok }]}>
+              <Text style={[s.stepText, i === 0 && { color: '#fff' }]}>{i === 0 ? '✓ ' : `${i + 1}. `}{step}</Text>
+            </View>
+          ))}
+        </View>
         <Muted>Signature {order.receipt.signature.slice(0, 16)}…</Muted>
         <Btn label="Download PDF receipt" color={primary} onPress={async () => {
           try { say(`Saved to ${await savePdf(`receipt-${p.order_id}.pdf`, order.receipt.pdf_base64)}`); } catch { say('Could not save the PDF.'); }
         }} />
       </Card>
     </ScrollView>
+  );
+}
+
+function OrdersScreen({ orders, push, primary }: any) {
+  return (
+    <FlatList contentContainerStyle={s.list} data={orders} keyExtractor={(o: any) => o.order_id}
+      ListHeaderComponent={<H>My orders</H>} ListEmptyComponent={<Empty text="No orders yet. Your receipts will appear here after you buy something." />}
+      renderItem={({ item: o }: any) => (
+        <Card onPress={() => push({ name: 'receipt', order: o })} label={`Order ${o.order_id}, ${pkr(o.total_minor)}, open receipt`}>
+          <View style={s.rowBetween}><Text style={s.body}>{new Date(o.receipt.payload.paid_at).toLocaleString()}</Text><Badge text="✓ Paid" color={C.ok} /></View>
+          <Muted>{o.items.length} item(s) · {o.order_id}</Muted>
+          <Text style={[s.price, { color: primary }]}>{pkr(o.total_minor)}</Text>
+        </Card>
+      )} />
   );
 }
 
@@ -607,15 +781,73 @@ function ClubProfile({ id, boot, user, primary, push, queue }: any) {
         {(c.history ?? []).map((h: any) => <Muted key={h.season}>Season {h.season}: finished #{h.position} ({h.points} pts)</Muted>)}
       </Card>
       <Card>
-        <H>Roster {manages ? '· tap Move to transfer, loan or release' : ''}</H>
+        <H>Squad ({(c.roster ?? []).length}){manages ? ' · tap Move to transfer, loan or release' : ''}</H>
         {(c.roster ?? []).length === 0 && <Muted>No players registered.</Muted>}
-        {(c.roster ?? []).map((p: any) => (
-          <View key={p.player_id} style={s.timelineRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.body}>{p.name} · {p.position.toUpperCase()}</Text>
-              <Muted>{p.role.replace('_', ' ')}{p.on_loan ? ' · on loan' : ''}{pendingFor(p.player_id) ? ' · change pending sync' : ''}</Muted>
+        {['gk', 'df', 'mf', 'fw', ...Array.from(new Set((c.roster ?? []).map((p: any) => p.position))).filter((x: any) => !['gk', 'df', 'mf', 'fw'].includes(x))].map((pos: any) => {
+          const group = (c.roster ?? []).filter((p: any) => p.position === pos);
+          if (!group.length) return null;
+          return (
+            <View key={pos}>
+              <Text style={s.dayHeader}>{({ gk: 'Goalkeepers', df: 'Defenders', mf: 'Midfielders', fw: 'Forwards' } as any)[pos] ?? pos} ({group.length})</Text>
+              {group.map((p: any) => (
+                <View key={p.player_id} style={s.timelineRow}>
+                  <Pressable style={{ flex: 1, minHeight: 48, justifyContent: 'center' }} accessibilityRole="button" accessibilityLabel={`Open ${p.name}`} onPress={() => push({ name: 'player', id: p.player_id })}>
+                    <Text style={s.body}>{p.name}{p.role === 'captain' ? ' (C)' : p.role === 'vice_captain' ? ' (VC)' : ''} ›</Text>
+                    <Muted>{p.role.replace('_', ' ')}{p.on_loan ? ' · on loan' : ''}{pendingFor(p.player_id) ? ' · change pending sync' : ''}</Muted>
+                  </Pressable>
+                  {manages && <Btn small color={primary} label="Move" onPress={() => push({ name: 'move', playerId: p.player_id })} />}
+                </View>
+              ))}
             </View>
-            {manages && <Btn small color={primary} label="Move" onPress={() => push({ name: 'move', playerId: p.player_id })} />}
+          );
+        })}
+      </Card>
+      <Card>
+        <H>Upcoming matches</H>
+        {(boot?.fixtures ?? []).filter((f: any) => f && f.status !== 'completed' && (f.home === id || f.away === id)).map((f: any) => (
+          <Pressable key={f.match_id} style={{ minHeight: 44, justifyContent: 'center' }} accessibilityRole="button" onPress={() => push({ name: 'match', id: f.match_id })}>
+            <Text style={s.body}>{f.status === 'in_progress' ? '● LIVE ' : ''}{boot.clubs.find((x: any) => x.club_id === f.home)?.name} vs {boot.clubs.find((x: any) => x.club_id === f.away)?.name} ›</Text>
+          </Pressable>
+        ))}
+        {!(boot?.fixtures ?? []).some((f: any) => f && f.status !== 'completed' && (f.home === id || f.away === id)) && <Muted>No upcoming matches.</Muted>}
+      </Card>
+    </ScrollView>
+  );
+}
+
+// ---------- Player (TeamSnap-style profile + immutable transfer history) ----------
+function PlayerScreen({ id, boot, server, token, net, teamName }: any) {
+  const club = boot?.clubs?.find((c: any) => c.roster?.some((p: any) => p.player_id === id));
+  const player = club?.roster?.find((p: any) => p.player_id === id);
+  const [hist, setHist] = useState<any>(null);
+  useEffect(() => {
+    (async () => {
+      setHist(await getJson(`player:${id}`, null));
+      if (net === 'offline') return;
+      try {
+        const h = await request<any>(server, `/api/v1/players/${id}/history`, { token });
+        setHist(h);
+        await setJson(`player:${id}`, h);
+      } catch { /* keep cached */ }
+    })();
+  }, [id, server, token, net]);
+  if (!player) return <Empty text="This player is no longer in a squad." />;
+  const LABEL: Record<string, string> = { transfer: 'Transferred', loan: 'Loaned', release: 'Released', loan_return: 'Returned from loan' };
+  return (
+    <ScrollView contentContainerStyle={s.list}>
+      <Card>
+        <Text style={s.title}>{player.name}</Text>
+        <Muted>{({ gk: 'Goalkeeper', df: 'Defender', mf: 'Midfielder', fw: 'Forward' } as any)[player.position] ?? player.position} · {player.role.replace('_', ' ')}</Muted>
+        <Text style={s.body}>Club: {club.name}{player.on_loan ? ' (on loan)' : ''}</Text>
+      </Card>
+      <Card>
+        <H>Transfer history</H>
+        {!hist && <Muted>{net === 'offline' ? 'History is available when online.' : 'Loading…'}</Muted>}
+        {hist && hist.history.length === 0 && <Muted>No roster changes yet. Every change is recorded here permanently.</Muted>}
+        {hist?.history.map((h: any) => (
+          <View key={h.audit_id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+            <Text style={s.body}>{LABEL[h.action] ?? h.action}{h.to_squad_id ? ` to ${teamName(h.to_squad_id)}` : ''} · {h.effective_date}</Text>
+            <Muted>From {teamName(h.from_squad_id)} · by {h.who} · {h.why}</Muted>
           </View>
         ))}
       </Card>
@@ -763,6 +995,11 @@ const s = StyleSheet.create({
   th: { backgroundColor: '#e5e7eb' },
   td: { flex: 1, textAlign: 'center', fontSize: 15, color: C.text },
   tdTeam: { fontSize: 15, fontWeight: '600', color: C.text },
+  dayHeader: { fontSize: 15, fontWeight: '800', color: C.muted, marginTop: 14, marginBottom: 6, textTransform: 'uppercase' },
+  formChip: { width: 22, height: 22, borderRadius: 4, alignItems: 'center', justifyContent: 'center', marginRight: 3, marginTop: 3 },
+  formText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  step: { borderWidth: 1.5, borderColor: C.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, marginRight: 6, marginTop: 6 },
+  stepText: { fontSize: 13, fontWeight: '700', color: C.muted },
   tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e5e7eb', backgroundColor: '#fff' },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 56, paddingVertical: 4 },
   tabIcon: { fontSize: 18 },
