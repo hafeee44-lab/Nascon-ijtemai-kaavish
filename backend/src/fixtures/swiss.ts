@@ -92,7 +92,7 @@ export function bestPairing(items: number[], score: number[], forbidden: (a: num
   const globalLb = lowerBound(items);
   let nodes = 0;
   const rec = (rest: number[], acc: [number, number][], cost: number): boolean => {
-    if (++nodes > 2_000_000) return true;
+    if (++nodes > 400_000) return true; // keep every request well under the 5 s budget
     if (rest.length === 0) {
       if (cost < bestCost) { bestCost = cost; best = acc.slice(); }
       return bestCost <= globalLb;

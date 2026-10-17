@@ -66,9 +66,19 @@ export class LeaguesController {
     const sport = (await this.db.get<SportConfig>('sport', league.sport_id))!;
     const played: PlayedMatch[] = [];
     const remaining = new Map<string, number>(league.teams.map((t) => [t, 0]));
+    // One round trip for every fixture's log (a 40-team double round robin has 780 matches).
+    const ids = league.fixtures.map((f) => f.match_id);
+    const docs = await this.db.query(`SELECT id, data FROM docs WHERE kind='match' AND id = ANY($1)`, [ids]);
+    const matches = new Map(docs.rows.map((r: any) => [r.id, r.data]));
+    const ev = await this.db.query('SELECT match_id, seq, event_id, type, payload, signature FROM match_events WHERE match_id = ANY($1) ORDER BY match_id, seq', [ids]);
+    const logs = new Map<string, any[]>();
+    for (const row of ev.rows) {
+      if (!logs.has(row.match_id)) logs.set(row.match_id, []);
+      logs.get(row.match_id)!.push(row);
+    }
     for (const f of league.fixtures) {
-      const m = await this.events.loadMatch(this.db.pool, f.match_id);
-      const p = m ? project(sport, m.match, m.events) : null;
+      const match = matches.get(f.match_id);
+      const p = match ? project(sport, match, logs.get(f.match_id) ?? []) : null;
       if (p && p.status === 'completed' && p.outcome !== 'undecided') {
         played.push({
           home: f.home, away: f.away, homeScore: p.home.score, awayScore: p.away.score,

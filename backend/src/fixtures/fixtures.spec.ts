@@ -162,3 +162,12 @@ describe('elimination brackets', () => {
     expect(doubleElim(teams(4), { bracket_reset: true }).grand_final[1].required).toBeNull();
   });
 });
+
+describe('bracket results robustness', () => {
+  it('accepts results in any order and a bye result naming the present team', () => {
+    const r = singleElim(teams(6), { results: [{ match_id: 'R2M1', winner: 't4' }, { match_id: 'R1M2', winner: 't4' }, { match_id: 'R1M1', winner: 't1' }] });
+    expect(r.rounds[1].matches[0]).toMatchObject({ home: 't1', away: 't4', winner: 't4' });
+    expect(() => singleElim(teams(6), { results: [{ match_id: 'R1M1', winner: 't8' }] })).toThrow(ApiError);
+    expect(() => singleElim(teams(4), { results: [{ match_id: 'R2M1', winner: 't1' }] })).toThrow(ApiError);
+  });
+});

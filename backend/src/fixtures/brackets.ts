@@ -83,19 +83,30 @@ class Bracket {
     if (results !== undefined && !Array.isArray(results)) throw validationError(['params.results']);
     const applied = new Map<string, string>();
     this.propagate(applied);
-    for (const r of (results as any[]) ?? []) {
-      if (typeof r !== 'object' || r === null || typeof r.match_id !== 'string' || typeof r.winner !== 'string') throw validationError(['params.results']);
-      const node = this.nodes.get(r.match_id);
-      if (!node) throw validationError(['params.results'], `Unknown match ${r.match_id}.`);
-      if (node.conditional) {
+    const pending = [...((results as any[]) ?? [])];
+    for (const r of pending)
+      if (typeof r !== 'object' || r === null || typeof r.match_id !== 'string' || typeof r.winner !== 'string' || !this.nodes.has(r.match_id))
+        throw validationError(['params.results'], `Unknown match ${r?.match_id}.`);
+    // Results may arrive in any order: keep applying those whose participants are known.
+    while (pending.length) {
+      let progressed = false;
+      for (let i = 0; i < pending.length; i++) {
+        const r = pending[i];
+        const node = this.nodes.get(r.match_id)!;
+        const st = this.state.get(r.match_id)!;
+        if (node.conditional) { applied.set(r.match_id, r.winner); pending.splice(i--, 1); progressed = true; continue; }
+        if (st.bye) {
+          if (r.winner !== st.winner) throw validationError(['params.results'], `${r.winner} is not a participant of ${r.match_id}.`);
+          pending.splice(i--, 1); progressed = true; continue;
+        }
+        if (!st.home || !st.away) continue;
+        if (r.winner !== st.home && r.winner !== st.away) throw validationError(['params.results'], `${r.winner} is not a participant of ${r.match_id}.`);
         applied.set(r.match_id, r.winner);
-        continue;
+        this.propagate(applied);
+        pending.splice(i--, 1);
+        progressed = true;
       }
-      const st = this.state.get(r.match_id)!;
-      if (st.bye || !st.home || !st.away || (r.winner !== st.home && r.winner !== st.away))
-        throw validationError(['params.results'], `${r.winner} is not a participant of ${r.match_id}.`);
-      applied.set(r.match_id, r.winner);
-      this.propagate(applied);
+      if (!progressed) throw validationError(['params.results'], `${pending[0].winner} is not a participant of ${pending[0].match_id}.`);
     }
     return applied;
   }
