@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Animated, BackHandler, FlatList, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Animated, BackHandler, FlatList, Image, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { ApiFailure, friendly, nowIso, pkr, request, today, uid } from './src/api';
@@ -130,6 +130,21 @@ function Jersey({ stripe, number = '10' }: { stripe: string; number?: string }) 
   );
 }
 
+const STADIUM = require('./assets/stadium.jpg');
+const PITCH = require('./assets/pitch.jpg');
+// Photo backdrop with a colour wash so text keeps contrast.
+const PhotoWash = ({ source, tint, opacity = 0.78 }: { source: any; tint: string; opacity?: number }) => (
+  <>
+    <Image source={source} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: tint, opacity }]} />
+  </>
+);
+// Screen transition: every route fades in and rises 12dp.
+function FadeIn({ children }: { children: React.ReactNode }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => { Animated.timing(a, { toValue: 1, duration: 260, useNativeDriver: true }).start(); }, [a]);
+  return <Animated.View style={{ flex: 1, opacity: a, transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>{children}</Animated.View>;
+}
 // Decorative floodlight circles behind hero areas.
 const Orbs = () => (
   <>
@@ -305,6 +320,7 @@ function Root() {
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" />
       <View style={[s.header, { backgroundColor: primary }]}>
+        <PhotoWash source={STADIUM} tint={primary} opacity={0.8} />
         <Orbs />
         {stack.length > 1 ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={pop} style={s.headerBtn}><Text style={s.headerBtnText}>‹ Back</Text></Pressable>
@@ -319,6 +335,7 @@ function Root() {
       </View>
       <NetBar net={net} pending={queue.length} onPress={() => { setStack([{ name: 'tabs' }]); setTab('sync'); }} />
       <View style={{ flex: 1 }}>
+        <FadeIn key={`${stack.length}-${route.name}-${tab}`}>
         {route.name === 'tabs' && tab === 'fixtures' && <Fixtures {...ctx} />}
         {route.name === 'tabs' && tab === 'standings' && <Standings {...ctx} />}
         {route.name === 'tabs' && tab === 'store' && <Store {...ctx} />}
@@ -336,6 +353,7 @@ function Root() {
           <Settings {...ctx} onServer={async (v: string) => { setServer(v); await setJson('server', v); say('Server address saved.'); }}
             onLogout={async () => { await secure.remove('token'); await removeKey('user'); setToken(null); setUser(null); }} />
         )}
+        </FadeIn>
       </View>
       {toast && <View style={s.toast} accessibilityLiveRegion="polite"><Text style={s.toastText}>{toast}</Text></View>}
       {route.name === 'tabs' && (
@@ -388,8 +406,8 @@ function Login({ server, onServer, onDone }: { server: string; onServer: (v: str
   return (
     <SafeAreaView style={[s.root, { padding: 20 }]}>
       <ScrollView keyboardShouldPersistTaps="handled">
-        <View style={[s.hero, { backgroundColor: '#1d4ed8', marginTop: 8 }]}>
-          <Orbs />
+        <View style={[s.hero, { backgroundColor: '#1d4ed8', marginTop: 8, paddingVertical: 36 }]}>
+          <PhotoWash source={PITCH} tint="#0A0F1E" opacity={0.5} />
           <View style={s.brandMark} accessibilityLabel="NaSCon logo"><Text style={s.brandMarkText}>N</Text></View>
           <Text style={[s.heroScore, { fontSize: 34 }]}>NaSCon Sports</Text>
           <Text style={s.heroNote}>Fixtures, live scores, standings and your club, all in one place.</Text>
@@ -570,7 +588,8 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
   return (
     <ScrollView contentContainerStyle={s.list}>
       <View style={[s.hero, { backgroundColor: primary }]}>
-        <Orbs />
+        <PhotoWash source={STADIUM} tint="#0A0F1E" opacity={0.55} />
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: primary, opacity: 0.35 }]} />
         <View style={[s.row, { justifyContent: 'center' }]}>
           {status === 'in_progress' && <LiveDot />}
           <Text style={s.heroStatus}>{st}{(m?.venue ?? summary?.venue) ? `  ·  ${m?.venue ?? summary?.venue}` : ''}</Text>
