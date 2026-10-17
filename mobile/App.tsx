@@ -22,25 +22,36 @@ const ROLE_LABEL: Record<string, string> = {
 };
 const DEMO = ['organizer', 'manager', 'player', 'viewer', 'admin'];
 
-// ---------- small UI kit (consistent spacing, 48dp targets, labels) ----------
-const C = { bg: '#f5f6f8', card: '#ffffff', text: '#111827', muted: '#4b5563', border: '#d1d5db', ok: '#047857', bad: '#b91c1c', warn: '#b45309' };
+// ---------- Modern Sports Team App Design System (Mehedi Hasan / Dribbble) ----------
+const C = {
+  bg: '#0B0F19', // Deep stadium midnight
+  card: '#161D2F', // Elevated dark slate surface
+  cardBorder: '#232D42', // Crisp card border
+  text: '#F8FAFC', // High-contrast clean white
+  muted: '#94A3B8', // Cool slate for secondary info
+  border: '#334155', // Input and divider borders
+  accent: '#38BDF8', // Electric cyan accent
+  ok: '#10B981', // Vivid pitch emerald green
+  bad: '#EF4444', // Neon energetic red
+  warn: '#F59E0B', // Energetic amber
+};
 
 function Btn({ label, onPress, color, kind = 'solid', disabled, small }: { label: string; onPress: () => void; color: string; kind?: 'solid' | 'outline'; disabled?: boolean; small?: boolean }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress}
-      style={({ pressed }) => [s.btn, small && s.btnSmall, kind === 'solid' ? { backgroundColor: color } : { borderColor: color, borderWidth: 2, backgroundColor: '#fff' },
+      style={({ pressed }) => [s.btn, small && s.btnSmall, kind === 'solid' ? { backgroundColor: color } : { borderColor: color, borderWidth: 1.5, backgroundColor: 'transparent' },
         (pressed || disabled) && { opacity: 0.6 }]}>
       <Text style={[s.btnText, { color: kind === 'solid' ? '#fff' : color }]}>{label}</Text>
     </Pressable>
   );
 }
 const Card = ({ children, onPress, label }: { children: React.ReactNode; onPress?: () => void; label?: string }) =>
-  onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.8 }]}>{children}</Pressable>
+  onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.85 }]}>{children}</Pressable>
     : <View style={s.card}>{children}</View>;
 const H = ({ children }: { children: React.ReactNode }) => <Text style={s.h}>{children}</Text>;
 const Muted = ({ children }: { children: React.ReactNode }) => <Text style={s.muted}>{children}</Text>;
 const Empty = ({ text }: { text: string }) => <View style={s.empty}><Text style={s.muted}>{text}</Text></View>;
-const Badge = ({ text, color }: { text: string; color: string }) => <View style={[s.badge, { borderColor: color }]}><Text style={[s.badgeText, { color }]}>{text}</Text></View>;
+const Badge = ({ text, color }: { text: string; color: string }) => <View style={[s.badge, { borderColor: color, backgroundColor: `${color}1A` }]}><Text style={[s.badgeText, { color }]}>{text}</Text></View>;
 
 const STATUS: Record<string, [string, string]> = {
   upcoming: ['Upcoming', C.muted], in_progress: ['● Live', C.bad], completed: ['Full time', C.ok],
@@ -956,55 +967,55 @@ function Settings({ server, onServer, onLogout, primary, deviceId, user }: any) 
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, minHeight: 60 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerSub: { color: '#e5e7eb', fontSize: 13 },
-  headerBtn: { minHeight: 48, minWidth: 48, justifyContent: 'center', paddingHorizontal: 6 },
-  headerBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  logo: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  logoText: { fontWeight: '800', fontSize: 16 },
-  netbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 3, minHeight: 44 },
-  netText: { fontSize: 14, fontWeight: '600', color: C.text },
-  list: { padding: 12, paddingBottom: 32 },
-  card: { backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#e5e7eb' },
-  h: { fontSize: 20, fontWeight: '700', color: C.text, marginVertical: 8 },
-  title: { fontSize: 24, fontWeight: '800', color: C.text, marginBottom: 4 },
-  muted: { color: C.muted, fontSize: 14, marginTop: 2 },
-  body: { color: C.text, fontSize: 16, marginVertical: 2 },
-  label: { color: C.text, fontSize: 15, fontWeight: '600', marginTop: 12, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, minHeight: 48, fontSize: 16, backgroundColor: '#fff', color: C.text },
-  error: { color: C.bad, fontSize: 15, marginVertical: 8 },
-  btn: { minHeight: 48, borderRadius: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', marginVertical: 6, marginRight: 8 },
-  btnSmall: { minHeight: 44, paddingHorizontal: 12 },
-  btnText: { fontSize: 16, fontWeight: '700' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, minHeight: 64, borderBottomWidth: 1, borderBottomColor: '#1E293B' },
+  headerTitle: { color: '#FFFFFF', fontSize: 19, fontWeight: '800', letterSpacing: 0.3 },
+  headerSub: { color: '#94A3B8', fontSize: 13, marginTop: 1 },
+  headerBtn: { minHeight: 48, minWidth: 48, justifyContent: 'center', paddingHorizontal: 8 },
+  headerBtnText: { color: '#38BDF8', fontSize: 15, fontWeight: '700' },
+  logo: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#1E293B', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#334155' },
+  logoText: { fontWeight: '900', fontSize: 16 },
+  netbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#0F172A', borderBottomWidth: 2, minHeight: 44 },
+  netText: { fontSize: 13, fontWeight: '700', color: C.text },
+  list: { padding: 14, paddingBottom: 36 },
+  card: { backgroundColor: C.card, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.cardBorder },
+  h: { fontSize: 20, fontWeight: '800', color: C.text, marginVertical: 10, letterSpacing: 0.2 },
+  title: { fontSize: 26, fontWeight: '900', color: C.text, marginBottom: 6, letterSpacing: -0.5 },
+  muted: { color: C.muted, fontSize: 14, marginTop: 2, lineHeight: 20 },
+  body: { color: C.text, fontSize: 16, marginVertical: 2, lineHeight: 22 },
+  label: { color: '#CBD5E1', fontSize: 14, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 14, marginBottom: 6 },
+  input: { borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, minHeight: 48, fontSize: 16, backgroundColor: '#0F172A', color: C.text },
+  error: { color: C.bad, fontSize: 14, fontWeight: '600', marginVertical: 8 },
+  btn: { minHeight: 48, borderRadius: 12, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center', marginVertical: 6, marginRight: 8 },
+  btnSmall: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10 },
+  btnText: { fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  team: { fontSize: 17, fontWeight: '600', color: C.text, flex: 1 },
-  score: { fontSize: 22, fontWeight: '800', color: C.text, marginHorizontal: 10 },
-  bigTeam: { fontSize: 18, fontWeight: '700', color: C.text, flex: 1 },
-  bigScore: { fontSize: 40, fontWeight: '900', marginHorizontal: 10 },
-  price: { fontSize: 20, fontWeight: '800', marginTop: 4 },
-  qty: { fontSize: 20, fontWeight: '700', marginHorizontal: 12, color: C.text },
-  badge: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start', marginLeft: 8 },
-  badgeText: { fontSize: 13, fontWeight: '700' },
-  empty: { padding: 32, alignItems: 'center' },
-  timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', minHeight: 48 },
-  timelineText: { fontSize: 15, color: C.text, flex: 1 },
-  struck: { textDecorationLine: 'line-through', color: C.muted },
-  tr: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#eee', minHeight: 52 },
-  th: { backgroundColor: '#e5e7eb' },
-  td: { flex: 1, textAlign: 'center', fontSize: 15, color: C.text },
-  tdTeam: { fontSize: 15, fontWeight: '600', color: C.text },
-  dayHeader: { fontSize: 15, fontWeight: '800', color: C.muted, marginTop: 14, marginBottom: 6, textTransform: 'uppercase' },
-  formChip: { width: 22, height: 22, borderRadius: 4, alignItems: 'center', justifyContent: 'center', marginRight: 3, marginTop: 3 },
-  formText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  step: { borderWidth: 1.5, borderColor: C.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, marginRight: 6, marginTop: 6 },
+  team: { fontSize: 17, fontWeight: '700', color: C.text, flex: 1 },
+  score: { fontSize: 20, fontWeight: '900', color: '#F1F5F9', marginHorizontal: 10, backgroundColor: '#0B0F19', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, overflow: 'hidden' },
+  bigTeam: { fontSize: 18, fontWeight: '800', color: C.text, flex: 1 },
+  bigScore: { fontSize: 44, fontWeight: '900', marginHorizontal: 12, letterSpacing: -1 },
+  price: { fontSize: 22, fontWeight: '900', marginTop: 4, letterSpacing: -0.3 },
+  qty: { fontSize: 20, fontWeight: '800', marginHorizontal: 14, color: C.text },
+  badge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 3, alignSelf: 'flex-start', marginLeft: 8 },
+  badgeText: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  empty: { padding: 36, alignItems: 'center' },
+  timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1E293B', minHeight: 48 },
+  timelineText: { fontSize: 15, color: C.text, flex: 1, fontWeight: '500' },
+  struck: { textDecorationLine: 'line-through', color: '#64748B' },
+  tr: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, paddingVertical: 12, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#1E293B', minHeight: 52 },
+  th: { backgroundColor: '#1E293B', borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  td: { flex: 1, textAlign: 'center', fontSize: 15, color: '#E2E8F0', fontWeight: '500' },
+  tdTeam: { fontSize: 15, fontWeight: '700', color: C.text },
+  dayHeader: { fontSize: 13, fontWeight: '800', color: '#38BDF8', marginTop: 16, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 },
+  formChip: { width: 24, height: 24, borderRadius: 6, alignItems: 'center', justifyContent: 'center', marginRight: 4, marginTop: 3 },
+  formText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  step: { borderWidth: 1.5, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6, marginTop: 6 },
   stepText: { fontSize: 13, fontWeight: '700', color: C.muted },
-  tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e5e7eb', backgroundColor: '#fff' },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 56, paddingVertical: 4 },
-  tabIcon: { fontSize: 18 },
-  tabText: { fontSize: 12, color: C.muted },
-  toast: { position: 'absolute', left: 16, right: 16, bottom: 72, backgroundColor: '#111827', padding: 14, borderRadius: 10 },
-  toastText: { color: '#fff', fontSize: 15 },
+  tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#1E293B', backgroundColor: '#0B0F19' },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 58, paddingVertical: 6 },
+  tabIcon: { fontSize: 20 },
+  tabText: { fontSize: 11, color: '#64748B', fontWeight: '600', marginTop: 2 },
+  toast: { position: 'absolute', left: 16, right: 16, bottom: 74, backgroundColor: '#1E293B', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#334155' },
+  toastText: { color: '#F8FAFC', fontSize: 15, fontWeight: '600' },
 });
