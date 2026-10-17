@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, BackHandler, FlatList, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, BackHandler, FlatList, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { ApiFailure, friendly, nowIso, pkr, request, today, uid } from './src/api';
@@ -23,24 +23,47 @@ const ROLE_LABEL: Record<string, string> = {
 const DEMO = ['organizer', 'manager', 'player', 'viewer', 'admin'];
 
 // ---------- small UI kit (consistent spacing, 48dp targets, labels) ----------
-const C = { bg: '#f5f6f8', card: '#ffffff', text: '#111827', muted: '#4b5563', border: '#d1d5db', ok: '#047857', bad: '#b91c1c', warn: '#b45309' };
+// Presentation only. The app's requests, routes, permissions and offline queue are unchanged.
+const PALETTES = {
+  dark: { bg: '#101113', card: '#1b1d20', text: '#f7f6f2', muted: '#b2b4bc', border: '#373a40', ok: '#70dda7', bad: '#ff826b', warn: '#f4d94e', accent: '#f4d94e', onAccent: '#17170f', soft: '#29291d', hot: '#ff6041', input: '#15171a', hero: '#26291b', heroText: '#f7f6e8' },
+  light: { bg: '#f3f2ee', card: '#ffffff', text: '#191b20', muted: '#595d65', border: '#d3d3ce', ok: '#17633f', bad: '#b92f19', warn: '#785707', accent: '#b93616', onAccent: '#ffffff', soft: '#fff0d4', hot: '#c43818', input: '#f8f8f5', hero: '#f4df62', heroText: '#202111' },
+};
+type Palette = typeof PALETTES.dark;
+const C = PALETTES.dark;
+const VisualContext = createContext<{ C: Palette; s: ReturnType<typeof createStyles>; dark: boolean; toggle: () => void; wide: boolean } | null>(null);
+function useVisual() {
+  const value = useContext(VisualContext);
+  if (!value) throw new Error('Visual theme is missing.');
+  return value;
+}
+function ThemeToggle() {
+  const { s, dark, toggle } = useVisual();
+  return <Pressable accessibilityRole="switch" accessibilityState={{ checked: dark }} accessibilityLabel="Dark mode" onPress={toggle} style={({ pressed }) => [s.themeToggle, pressed && { opacity: 0.65 }]}>
+    <Text style={s.themeEmoji}>{dark ? '☀️' : '🌙'}</Text><Text style={s.themeLabel}>{dark ? 'Light' : 'Dark'}</Text>
+  </Pressable>;
+}
 
 function Btn({ label, onPress, color, kind = 'solid', disabled, small }: { label: string; onPress: () => void; color: string; kind?: 'solid' | 'outline'; disabled?: boolean; small?: boolean }) {
+  const { s, C } = useVisual();
+  const danger = color === C.bad || color === PALETTES.dark.bad || color === PALETTES.light.bad;
+  const tint = danger ? C.bad : C.accent;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} disabled={disabled} onPress={onPress}
-      style={({ pressed }) => [s.btn, small && s.btnSmall, kind === 'solid' ? { backgroundColor: color } : { borderColor: color, borderWidth: 2, backgroundColor: '#fff' },
+      style={({ pressed }) => [s.btn, small && s.btnSmall, kind === 'solid' ? { backgroundColor: tint } : { borderColor: C.border, borderWidth: 1, backgroundColor: C.card },
         (pressed || disabled) && { opacity: 0.6 }]}>
-      <Text style={[s.btnText, { color: kind === 'solid' ? '#fff' : color }]}>{label}</Text>
+      <Text style={[s.btnText, { color: kind === 'solid' ? (danger ? C.bg : C.onAccent) : danger ? C.bad : C.text }]}>{label}</Text>
     </Pressable>
   );
 }
-const Card = ({ children, onPress, label }: { children: React.ReactNode; onPress?: () => void; label?: string }) =>
-  onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.8 }]}>{children}</Pressable>
+function Card({ children, onPress, label }: { children: React.ReactNode; onPress?: () => void; label?: string }) {
+  const { s } = useVisual();
+  return onPress ? <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.8 }]}>{children}</Pressable>
     : <View style={s.card}>{children}</View>;
-const H = ({ children }: { children: React.ReactNode }) => <Text style={s.h}>{children}</Text>;
-const Muted = ({ children }: { children: React.ReactNode }) => <Text style={s.muted}>{children}</Text>;
-const Empty = ({ text }: { text: string }) => <View style={s.empty}><Text style={s.muted}>{text}</Text></View>;
-const Badge = ({ text, color }: { text: string; color: string }) => <View style={[s.badge, { borderColor: color }]}><Text style={[s.badgeText, { color }]}>{text}</Text></View>;
+}
+function H({ children }: { children: React.ReactNode }) { const { s } = useVisual(); return <Text accessibilityRole="header" style={s.h}>{children}</Text>; }
+function Muted({ children }: { children: React.ReactNode }) { const { s } = useVisual(); return <Text style={s.muted}>{children}</Text>; }
+function Empty({ text }: { text: string }) { const { s } = useVisual(); return <View style={s.empty}><Text style={s.emptyEmoji}>🏟️</Text><Text style={s.emptyTitle}>Nothing here just yet.</Text><Text style={[s.muted, { textAlign: 'center' }]}>{text}</Text></View>; }
+function Badge({ text, color }: { text: string; color: string }) { const { s } = useVisual(); return <View style={[s.badge, { borderColor: color }]}><Text style={[s.badgeText, { color }]}>{text}</Text></View>; }
 
 const STATUS: Record<string, [string, string]> = {
   upcoming: ['Upcoming', C.muted], in_progress: ['● Live', C.bad], completed: ['Full time', C.ok],
@@ -48,14 +71,26 @@ const STATUS: Record<string, [string, string]> = {
 };
 
 export default function App() {
+  const [dark, setDark] = useState(true);
+  const { width } = useWindowDimensions();
+  // Preference persistence is separate from domain storage and never blocks startup.
+  useEffect(() => { getJson<boolean>('ui_dark_mode', true).then(setDark); }, []);
+  const toggle = useCallback(() => setDark((value) => { void setJson('ui_dark_mode', !value); return !value; }), []);
+  const visual = useMemo(() => {
+    const colors = dark ? PALETTES.dark : PALETTES.light;
+    return { C: colors, s: createStyles(colors, width), dark, toggle, wide: width >= 840 };
+  }, [dark, width, toggle]);
   return (
+    <VisualContext.Provider value={visual}>
     <SafeAreaProvider>
       <Root />
     </SafeAreaProvider>
+    </VisualContext.Provider>
   );
 }
 
 function Root() {
+  const { s, C, dark, wide } = useVisual();
   const [ready, setReady] = useState(false);
   const [server, setServer] = useState('http://10.0.2.2:8080');
   const [token, setToken] = useState<string | null>(null);
@@ -186,21 +221,23 @@ function Root() {
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
-      <StatusBar barStyle="light-content" />
-      <View style={[s.header, { backgroundColor: primary }]}>
+      <StatusBar barStyle={dark ? 'light-content' : 'dark-content'} />
+      <View style={s.header}>
         {stack.length > 1 ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={pop} style={s.headerBtn}><Text style={s.headerBtnText}>‹ Back</Text></Pressable>
         ) : (
-          <View style={s.logo} accessibilityLabel={`${boot?.tenant?.name ?? 'Club'} logo`}><Text style={[s.logoText, { color: primary }]}>{(boot?.tenant?.name ?? 'NA').split(' ').map((w: string) => w[0]).join('').slice(0, 2)}</Text></View>
+          <View style={[s.logo, { backgroundColor: primary }]} accessibilityLabel={`${boot?.tenant?.name ?? 'Club'} logo`}><Text style={[s.logoText, { color: '#fff' }]}>{(boot?.tenant?.name ?? 'NA').split(' ').map((w: string) => w[0]).join('').slice(0, 2)}</Text></View>
         )}
         <View style={{ flex: 1, marginHorizontal: 8 }}>
           <Text style={s.headerTitle} numberOfLines={1}>{boot?.tenant?.name ?? 'NaSCon Sports'}</Text>
           <Text style={s.headerSub} numberOfLines={1}>{ROLE_LABEL[user.role]} · {user.email}</Text>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => push({ name: 'settings' })} style={s.headerBtn}><Text style={s.headerBtnText}>⚙ Settings</Text></Pressable>
+        <ThemeToggle />
+        <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => push({ name: 'settings' })} style={s.headerBtn}><Text style={s.headerBtnText}>⚙️</Text></Pressable>
       </View>
       <NetBar net={net} pending={queue.length} onPress={() => { setStack([{ name: 'tabs' }]); setTab('sync'); }} />
-      <View style={{ flex: 1 }}>
+      <View style={s.workspace}>
+      <View style={s.screen}>
         {route.name === 'tabs' && tab === 'fixtures' && <Fixtures {...ctx} />}
         {route.name === 'tabs' && tab === 'standings' && <Standings {...ctx} />}
         {route.name === 'tabs' && tab === 'store' && <Store {...ctx} />}
@@ -222,19 +259,22 @@ function Root() {
       {toast && <View style={s.toast} accessibilityLiveRegion="polite"><Text style={s.toastText}>{toast}</Text></View>}
       {route.name === 'tabs' && (
         <View style={s.tabs}>
-          {([['fixtures', 'Fixtures', '📅'], ['standings', 'Standings', '🏆'], ['store', 'Store', '🛒'], ['club', 'Club', '🛡'], ['sync', 'Sync', '⇅']] as [Tab, string, string][]).map(([k, label, icon]) => (
-            <Pressable key={k} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: tab === k }} onPress={() => setTab(k)} style={s.tab}>
-              <Text style={[s.tabIcon]}>{icon}</Text>
-              <Text style={[s.tabText, tab === k && { color: primary, fontWeight: '700' }]}>{label}{k === 'sync' && queue.length ? ` (${queue.length})` : ''}{k === 'store' && cart.length ? ` (${cart.length})` : ''}</Text>
+          {wide && <Text style={s.railTitle}>YOUR MATCHDAY</Text>}
+          {([['fixtures', 'Fixtures', '📅'], ['standings', 'Standings', '🏆'], ['store', 'Store', '🛍️'], ['club', 'Club', '🛡️'], ['sync', 'Sync', '🔄']] as [Tab, string, string][]).map(([k, label, icon]) => (
+            <Pressable key={k} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: tab === k }} onPress={() => setTab(k)} style={({ pressed }) => [s.tab, tab === k && s.tabSelected, pressed && { opacity: 0.65 }]}>
+              <Text style={s.tabIcon}>{icon}</Text>
+              <Text style={[s.tabText, tab === k && s.tabTextSelected]}>{label}{k === 'sync' && queue.length ? ` (${queue.length})` : ''}{k === 'store' && cart.length ? ` (${cart.length})` : ''}</Text>
             </Pressable>
           ))}
         </View>
       )}
+      </View>
     </SafeAreaView>
   );
 }
 
 function NetBar({ net, pending, onPress }: { net: Net; pending: number; onPress: () => void }) {
+  const { s, C } = useVisual();
   const [label, color] = net === 'online' ? ['● Online', C.ok] : net === 'syncing' ? ['⟳ Syncing…', C.warn] : ['○ Offline: showing saved data', C.bad];
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${label}. ${pending} pending changes. Open sync status.`} onPress={onPress} style={[s.netbar, { borderColor: color }]}>
@@ -246,6 +286,7 @@ function NetBar({ net, pending, onPress }: { net: Net; pending: number; onPress:
 
 // ---------- Login ----------
 function Login({ server, onServer, onDone }: { server: string; onServer: (v: string) => void; onDone: (t: string, u: User) => void }) {
+  const { s, C } = useVisual();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -263,24 +304,26 @@ function Login({ server, onServer, onDone }: { server: string; onServer: (v: str
     } finally { setBusy(false); }
   };
   return (
-    <SafeAreaView style={[s.root, { padding: 20 }]}>
-      <ScrollView keyboardShouldPersistTaps="handled">
-        <Text style={s.title}>NaSCon Sports</Text>
-        <Muted>Sign in to see fixtures, standings and your club.</Muted>
+    <SafeAreaView style={s.root}>
+      <ScrollView contentContainerStyle={s.loginContent} keyboardShouldPersistTaps="handled">
+        <View style={s.loginBrand}><Text style={s.loginWordmark}>🏁 NaSCon Sports</Text><ThemeToggle /></View>
+        <Text style={s.loginHeadline}>Your club.{"\n"}<Text style={s.loginAccent}>Your game.</Text></Text>
+        <Muted>From the first whistle to the final table. Your leagues, live scores and club, together.</Muted>
         <Text style={s.label}>Email</Text>
-        <TextInput style={s.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" accessibilityLabel="Email" placeholder="you@nascon.test" />
+        <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" accessibilityLabel="Email" placeholder="you@nascon.test" />
         <Text style={s.label}>Password</Text>
-        <TextInput style={s.input} value={password} onChangeText={setPassword} secureTextEntry accessibilityLabel="Password" placeholder="Password" />
+        <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={password} onChangeText={setPassword} secureTextEntry accessibilityLabel="Password" placeholder="Password" />
         {err && <Text style={s.error} accessibilityLiveRegion="assertive">{err}</Text>}
-        {busy ? <ActivityIndicator style={{ margin: 16 }} /> : <Btn label="Sign in" color="#1d4ed8" onPress={submit} disabled={!email || !password} />}
-        <Text style={s.label}>Demo accounts (password Nascon@26)</Text>
+        {busy ? <ActivityIndicator style={{ margin: 16 }} /> : <Btn label="Sign in →" color={C.accent} onPress={submit} disabled={!email || !password} />}
+        <Text style={s.label}>Choose a demo account</Text>
+        <Muted>Tap a role to fill the login · Password: Nascon@26</Muted>
         <View style={s.row}>
           {DEMO.map((d) => (
-            <Btn key={d} small kind="outline" color="#1d4ed8" label={d} onPress={() => { setEmail(`${d}@nascon.test`); setPassword('Nascon@26'); }} />
+            <Btn key={d} small kind="outline" color={C.accent} label={`${({ organizer: '🏟️', manager: '🛡️', player: '⚽', viewer: '👀', admin: '🏁' } as Record<string, string>)[d]} ${d[0].toUpperCase() + d.slice(1)}`} onPress={() => { setEmail(`${d}@nascon.test`); setPassword('Nascon@26'); }} />
           ))}
         </View>
         <Text style={s.label}>Server address</Text>
-        <TextInput style={s.input} value={addr} onChangeText={setAddr} autoCapitalize="none" accessibilityLabel="Server address" />
+        <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={addr} onChangeText={setAddr} autoCapitalize="none" accessibilityLabel="Server address" />
         <Muted>Emulator: http://10.0.2.2:8080 · Phone: http://LAPTOP-LAN-IP:8080</Muted>
       </ScrollView>
     </SafeAreaView>
@@ -300,6 +343,7 @@ const dayLabel = (iso: string | null) => {
 };
 
 function TodayCard({ boot, user, teamName, push, setTab, primary }: any) {
+  const { s, C } = useVisual();
   const fixtures = (boot?.fixtures ?? []).filter(Boolean);
   const live = fixtures.filter((f: any) => f.status === 'in_progress');
   const club = boot?.clubs?.find((c: any) => c.club_id === user.club_id);
@@ -318,15 +362,18 @@ function TodayCard({ boot, user, teamName, push, setTab, primary }: any) {
     action = next ? { label: 'Open match', go: () => push({ name: 'match', id: next.match_id }) } : null;
   }
   return (
-    <View style={[s.card, { borderLeftWidth: 5, borderLeftColor: primary }]}>
-      <Muted>{ROLE_LABEL[user.role]} · Today</Muted>
-      <Text style={[s.body, { fontWeight: '700' }]}>{title}</Text>
+    <View style={s.todayCard}>
+      <Text style={s.heroEmoji} accessibilityElementsHidden>🏟️</Text>
+      <Text style={s.todayRole}>{ROLE_LABEL[user.role]} · Today</Text>
+      <Text style={s.todayHeadline}>{title}</Text>
       {action && <Btn small color={primary} label={action.label} onPress={action.go} />}
     </View>
   );
 }
 
 function Fixtures(props: any) {
+  const { s, C } = useVisual();
+  const STATUS = { upcoming: ['Upcoming', C.muted], in_progress: ['🔴 Live', C.bad], completed: ['Full time', C.ok], clinched: ['✅ Qualified', C.ok], eliminated: ['Out', C.bad], still_possible: ['In contention', C.warn] } as Record<string, [string, string]>;
   const { boot, teamName, push, refresh, net, primary } = props;
   const [filter, setFilter] = useState<'all' | 'live' | 'upcoming' | 'results'>('all');
   const [q, setQ] = useState('');
@@ -352,8 +399,9 @@ function Fixtures(props: any) {
       refreshControl={<RefreshControl refreshing={refreshing} enabled={net !== 'offline'} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }} />}
       ListHeaderComponent={
         <View>
+          <View style={s.pageIntro}><Text style={s.pageTitle}>Your matchday.</Text><Muted>Every fixture. Every result. All in one place.</Muted></View>
           <TodayCard {...props} />
-          <TextInput style={s.input} value={q} onChangeText={setQ} placeholder="Search teams or venues" accessibilityLabel="Search fixtures by team or venue" />
+          <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={q} onChangeText={setQ} placeholder="🔎  Search teams or venues" accessibilityLabel="Search fixtures by team or venue" />
           <View style={[s.row, { marginTop: 6 }]}>
             {(['all', 'live', 'upcoming', 'results'] as const).map((k) => (
               <Btn key={k} small kind={filter === k ? 'solid' : 'outline'} color={primary} label={`${k === 'live' ? '● Live' : k[0].toUpperCase() + k.slice(1)} (${counts[k]})`} onPress={() => setFilter(k)} />
@@ -372,12 +420,12 @@ function Fixtures(props: any) {
               <Badge text={st} color={col} />
               <Muted>{f.kickoff ? new Date(f.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</Muted>
             </View>
-            <View style={s.rowBetween}>
-              <Text style={s.team} numberOfLines={1}>{teamName(f.home)}</Text>
+            <View style={[s.rowBetween, s.fixtureScoreboard]}>
+              <View style={s.teamSide}><View style={s.crest}><Text style={s.crestText}>{teamName(f.home).slice(0, 2).toUpperCase()}</Text></View><Text style={s.matchTeam} numberOfLines={2}>{teamName(f.home)}</Text></View>
               <Text style={s.score}>{f.status === 'upcoming' ? 'vs' : `${f.home_score} – ${f.away_score}`}</Text>
-              <Text style={[s.team, { textAlign: 'right' }]} numberOfLines={1}>{teamName(f.away)}</Text>
+              <View style={s.teamSide}><View style={s.crest}><Text style={s.crestText}>{teamName(f.away).slice(0, 2).toUpperCase()}</Text></View><Text style={s.matchTeam} numberOfLines={2}>{teamName(f.away)}</Text></View>
             </View>
-            {f.venue && <Muted>📍 {f.venue}</Muted>}
+            <View style={s.matchFooter}><Muted>{f.venue ? `📍 ${f.venue}` : 'Match centre'}</Muted><Text style={s.matchLink}>Open match →</Text></View>
           </Card>
         );
       }}
@@ -387,6 +435,8 @@ function Fixtures(props: any) {
 
 // ---------- Match detail (live score, timeline, pinned product, organizer scoring) ----------
 function MatchDetail({ id, server, token, net, boot, teamName, primary, user, enqueue, push, queue }: any) {
+  const { s, C } = useVisual();
+  const STATUS = { upcoming: ['Upcoming', C.muted], in_progress: ['🔴 Live', C.bad], completed: ['Full time', C.ok], clinched: ['✅ Qualified', C.ok], eliminated: ['Out', C.bad], still_possible: ['In contention', C.warn] } as Record<string, [string, string]>;
   const [m, setM] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<'timeline' | 'h2h' | 'table'>('timeline');
@@ -431,7 +481,7 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
         <View style={s.rowBetween}><Badge text={st} color={col} /><Muted>{m?.venue ?? summary?.venue ?? ''}</Muted></View>
         <View style={[s.rowBetween, { marginTop: 8 }]}>
           <Text style={s.bigTeam} numberOfLines={2}>{teamName(home)}</Text>
-          <Text style={[s.bigScore, { color: primary }]} accessibilityLabel={`Score ${m?.home?.score ?? summary?.home_score} to ${m?.away?.score ?? summary?.away_score}`}>
+          <Text style={[s.bigScore, { color: C.accent }]} accessibilityLabel={`Score ${m?.home?.score ?? summary?.home_score} to ${m?.away?.score ?? summary?.away_score}`}>
             {m?.home?.score ?? summary?.home_score ?? 0} – {m?.away?.score ?? summary?.away_score ?? 0}
           </Text>
           <Text style={[s.bigTeam, { textAlign: 'right' }]} numberOfLines={2}>{teamName(away)}</Text>
@@ -511,7 +561,7 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
             {st.table.map((r: any) => {
               const playing = r.team_id === home || r.team_id === away;
               return (
-                <View key={r.team_id} style={[s.rowBetween, { minHeight: 40 }, playing && { backgroundColor: '#eef2ff' }]}>
+                <View key={r.team_id} style={[s.rowBetween, { minHeight: 40 }, playing && { backgroundColor: C.soft }]}>
                   <Text style={[s.body, playing && { fontWeight: '800' }]}>{r.rank}. {teamName(r.team_id)}</Text>
                   <Text style={[s.body, { fontWeight: '700' }]}>{r.points} pts</Text>
                 </View>
@@ -526,9 +576,9 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
           <Muted>Featured in the club store</Muted>
           <View style={s.rowBetween}>
             <Text style={s.team}>{product.name}</Text>
-            <Text style={[s.price, { color: primary }]}>{pkr(product.variants[0].price_minor)}</Text>
+            <Text style={[s.price, { color: C.accent }]}>{pkr(product.variants[0].price_minor)}</Text>
           </View>
-          <Text style={{ color: primary, fontWeight: '700' }}>Shop now ›</Text>
+          <Text style={{ color: C.accent, fontWeight: '700' }}>Shop now ›</Text>
         </Card>
       )}
     </ScrollView>
@@ -547,6 +597,8 @@ function formOf(fixtures: any[], team: string): string[] {
     });
 }
 function FormGuide({ form }: { form: string[] }) {
+  const { s, C } = useVisual();
+  const FORM: Record<string, [string, string]> = { W: ['W', C.ok], D: ['D', C.muted], L: ['L', C.bad] };
   if (!form.length) return <Muted>No results yet</Muted>;
   return (
     <View style={s.row} accessibilityLabel={`Form, most recent first: ${form.map((x) => ({ W: 'win', D: 'draw', L: 'loss' } as any)[x]).join(', ')}`}>
@@ -556,6 +608,8 @@ function FormGuide({ form }: { form: string[] }) {
 }
 
 function Standings({ boot, teamName, user, push, primary }: any) {
+  const { s, C } = useVisual();
+  const STATUS = { upcoming: ['Upcoming', C.muted], in_progress: ['🔴 Live', C.bad], completed: ['Full time', C.ok], clinched: ['✅ Qualified', C.ok], eliminated: ['Out', C.bad], still_possible: ['In contention', C.warn] } as Record<string, [string, string]>;
   const leagues = boot?.standings ?? [];
   const [i, setI] = useState(0);
   const st = leagues[i];
@@ -576,10 +630,10 @@ function Standings({ boot, teamName, user, push, primary }: any) {
         return (
           <Pressable key={r.team_id} accessibilityRole="button" onPress={() => push({ name: 'club', id: r.team_id })}
             accessibilityLabel={`Rank ${r.rank}, ${teamName(r.team_id)}${mine ? ', your club' : ''}, ${r.points} points, ${label}`}
-            style={({ pressed }) => [s.tr, { borderLeftWidth: 5, borderLeftColor: inZone ? C.ok : 'transparent' }, mine && { backgroundColor: '#eef2ff' }, pressed && { opacity: 0.7 }]}>
+            style={({ pressed }) => [s.tr, { borderLeftWidth: 5, borderLeftColor: inZone ? C.ok : 'transparent' }, mine && { backgroundColor: C.soft }, pressed && { opacity: 0.7 }]}>
             <Text style={[s.td, { flex: 0.5, fontWeight: '700' }]}>{r.rank}</Text>
             <View style={{ flex: 3 }}>
-              <Text style={[s.tdTeam, mine && { color: primary }]} numberOfLines={1}>{teamName(r.team_id)}{mine ? ' · Your club' : ''}</Text>
+              <Text style={[s.tdTeam, mine && { color: C.accent }]} numberOfLines={1}>{teamName(r.team_id)}{mine ? ' · Your club' : ''}</Text>
               <Text style={{ color: col, fontSize: 13, fontWeight: '600' }}>{label}</Text>
               <FormGuide form={formOf(boot.fixtures ?? [], r.team_id)} />
             </View>
@@ -600,6 +654,7 @@ function Standings({ boot, teamName, user, push, primary }: any) {
 
 // ---------- Store ----------
 function Store({ boot, push, primary, cart, orders }: any) {
+  const { s, C } = useVisual();
   const products = boot?.products ?? [];
   return (
     <FlatList contentContainerStyle={s.list} data={products} keyExtractor={(p: any) => p.product_id}
@@ -615,15 +670,17 @@ function Store({ boot, push, primary, cart, orders }: any) {
       ListEmptyComponent={<Empty text="No products in the store yet." />}
       renderItem={({ item: p }: any) => (
         <Card onPress={() => push({ name: 'product', id: p.product_id })} label={`${p.name}, ${pkr(p.variants[0].price_minor)}`}>
+          <View style={s.productVisual}><Text style={s.productEmoji} accessibilityLabel={p.category}>{p.category === 'apparel' ? '👕' : p.category === 'accessories' ? '🧢' : '🎁'}</Text></View>
           <Text style={s.team}>{p.name}</Text>
           <Muted>{p.category} · {p.variants.length} sizes</Muted>
-          <Text style={[s.price, { color: primary }]}>{pkr(p.variants[0].price_minor)}</Text>
+          <Text style={[s.price, { color: C.accent }]}>{pkr(p.variants[0].price_minor)}</Text>
         </Card>
       )} />
   );
 }
 
 function ProductScreen({ id, boot, primary, setCart, cart, push, say }: any) {
+  const { s, C } = useVisual();
   const p = boot?.products?.find((x: any) => x.product_id === id);
   const [variant, setVariant] = useState<string | null>(null);
   const [qty, setQty] = useState(1);
@@ -632,8 +689,9 @@ function ProductScreen({ id, boot, primary, setCart, cart, push, say }: any) {
   return (
     <ScrollView contentContainerStyle={s.list}>
       <Card>
+        <View style={s.productVisual}><Text style={s.productEmoji} accessibilityLabel={p.category}>👕</Text></View>
         <Text style={s.title}>{p.name}</Text>
-        <Text style={[s.price, { color: primary }]}>{pkr(p.variants[0].price_minor)}</Text>
+        <Text style={[s.price, { color: C.accent }]}>{pkr(p.variants[0].price_minor)}</Text>
         <Text style={s.label}>Choose a size</Text>
         <View style={s.row}>
           {p.variants.map((x: any) => (
@@ -655,6 +713,7 @@ function ProductScreen({ id, boot, primary, setCart, cart, push, say }: any) {
 }
 
 function CartScreen({ cart, setCart, primary, server, token, net, push, refresh, saveOrder }: any) {
+  const { s, C } = useVisual();
   const [code, setCode] = useState('');
   const [card, setCard] = useState('tok_success');
   const [busy, setBusy] = useState(false);
@@ -689,14 +748,14 @@ function CartScreen({ cart, setCart, primary, server, token, net, push, refresh,
       ))}
       <Card>
         <Text style={s.label}>Discount code</Text>
-        <TextInput style={s.input} value={code} onChangeText={setCode} autoCapitalize="characters" placeholder="e.g. WELCOME10" accessibilityLabel="Discount code" />
+        <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={code} onChangeText={setCode} autoCapitalize="characters" placeholder="e.g. WELCOME10" accessibilityLabel="Discount code" />
         <Text style={s.label}>Test card (mock payment gateway)</Text>
         <View style={s.row}>
           {[['tok_success', 'Approves'], ['tok_declined', 'Declines'], ['tok_capture_fail', 'Capture fails']].map(([t, l]) => (
             <Btn key={t} small kind={card === t ? 'solid' : 'outline'} color={primary} label={l} onPress={() => setCard(t)} />
           ))}
         </View>
-        <Text style={[s.price, { color: primary, marginVertical: 8 }]}>Subtotal {pkr(subtotal)}</Text>
+        <Text style={[s.price, { color: C.accent, marginVertical: 8 }]}>Subtotal {pkr(subtotal)}</Text>
         {err && <Text style={s.error} accessibilityLiveRegion="assertive">{err}</Text>}
         {net === 'offline' ? <Text style={s.error}>Checkout needs a connection. Your cart is kept.</Text>
           : busy ? <ActivityIndicator /> : <Btn label={`Pay ${pkr(subtotal)}`} color={primary} onPress={pay} />}
@@ -706,6 +765,7 @@ function CartScreen({ cart, setCart, primary, server, token, net, push, refresh,
 }
 
 function Receipt({ order, primary, say }: any) {
+  const { s, C } = useVisual();
   const p = order.receipt.payload;
   return (
     <ScrollView contentContainerStyle={s.list}>
@@ -716,12 +776,12 @@ function Receipt({ order, primary, say }: any) {
         {p.items.map((i: any) => <Text key={i.variant_id} style={s.body}>{i.variant_id} × {i.quantity} · {pkr(i.unit_price_minor * i.quantity)}</Text>)}
         <Text style={s.body}>Subtotal {pkr(p.subtotal_minor)}</Text>
         <Text style={s.body}>Discount −{pkr(p.discount_minor)}</Text>
-        <Text style={[s.price, { color: primary }]}>Total {pkr(p.total_minor)}</Text>
+        <Text style={[s.price, { color: C.accent }]}>Total {pkr(p.total_minor)}</Text>
         <Text style={s.label}>Order progress</Text>
         <View style={s.row} accessibilityLabel="Order progress: paid. Next: packed, shipped, delivered.">
           {['Paid', 'Packed', 'Shipped', 'Delivered'].map((step, i) => (
             <View key={step} style={[s.step, i === 0 && { backgroundColor: C.ok, borderColor: C.ok }]}>
-              <Text style={[s.stepText, i === 0 && { color: '#fff' }]}>{i === 0 ? '✓ ' : `${i + 1}. `}{step}</Text>
+              <Text style={[s.stepText, i === 0 && { color: C.bg }]}>{i === 0 ? '✓ ' : `${i + 1}. `}{step}</Text>
             </View>
           ))}
         </View>
@@ -735,6 +795,7 @@ function Receipt({ order, primary, say }: any) {
 }
 
 function OrdersScreen({ orders, push, primary }: any) {
+  const { s, C } = useVisual();
   return (
     <FlatList contentContainerStyle={s.list} data={orders} keyExtractor={(o: any) => o.order_id}
       ListHeaderComponent={<H>My orders</H>} ListEmptyComponent={<Empty text="No orders yet. Your receipts will appear here after you buy something." />}
@@ -742,7 +803,7 @@ function OrdersScreen({ orders, push, primary }: any) {
         <Card onPress={() => push({ name: 'receipt', order: o })} label={`Order ${o.order_id}, ${pkr(o.total_minor)}, open receipt`}>
           <View style={s.rowBetween}><Text style={s.body}>{new Date(o.receipt.payload.paid_at).toLocaleString()}</Text><Badge text="✓ Paid" color={C.ok} /></View>
           <Muted>{o.items.length} item(s) · {o.order_id}</Muted>
-          <Text style={[s.price, { color: primary }]}>{pkr(o.total_minor)}</Text>
+          <Text style={[s.price, { color: C.accent }]}>{pkr(o.total_minor)}</Text>
         </Card>
       )} />
   );
@@ -750,6 +811,7 @@ function OrdersScreen({ orders, push, primary }: any) {
 
 // ---------- Club ----------
 function ClubTab(props: any) {
+  const { s, C } = useVisual();
   const { boot, user, push } = props;
   const own = boot?.clubs?.find((c: any) => c.club_id === user.club_id);
   if (own) return <ClubProfile {...props} id={own.club_id} />;
@@ -765,6 +827,7 @@ function ClubTab(props: any) {
 }
 
 function ClubProfile({ id, boot, user, primary, push, queue }: any) {
+  const { s, C } = useVisual();
   const c = boot?.clubs?.find((x: any) => x.club_id === id);
   if (!c) return <Empty text="Club not found." />;
   const manages = user.role === 'super_admin' || (user.role === 'club_manager' && user.club_id === id);
@@ -772,6 +835,7 @@ function ClubProfile({ id, boot, user, primary, push, queue }: any) {
   return (
     <ScrollView contentContainerStyle={s.list}>
       <Card>
+        <Text style={s.heroEmoji}>🛡️</Text>
         <Text style={s.title}>{c.name}</Text>
         <Muted>📍 {c.venue?.name} ({c.venue?.lat}, {c.venue?.lng})</Muted>
         <Muted>{c.social?.x} · {c.social?.instagram}</Muted>
@@ -818,6 +882,7 @@ function ClubProfile({ id, boot, user, primary, push, queue }: any) {
 
 // ---------- Player (TeamSnap-style profile + immutable transfer history) ----------
 function PlayerScreen({ id, boot, server, token, net, teamName }: any) {
+  const { s, C } = useVisual();
   const club = boot?.clubs?.find((c: any) => c.roster?.some((p: any) => p.player_id === id));
   const player = club?.roster?.find((p: any) => p.player_id === id);
   const [hist, setHist] = useState<any>(null);
@@ -846,7 +911,7 @@ function PlayerScreen({ id, boot, server, token, net, teamName }: any) {
         {!hist && <Muted>{net === 'offline' ? 'History is available when online.' : 'Loading…'}</Muted>}
         {hist && hist.history.length === 0 && <Muted>No roster changes yet. Every change is recorded here permanently.</Muted>}
         {hist?.history.map((h: any) => (
-          <View key={h.audit_id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}>
+          <View key={h.audit_id} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border }}>
             <Text style={s.body}>{LABEL[h.action] ?? h.action}{h.to_squad_id ? ` to ${teamName(h.to_squad_id)}` : ''} · {h.effective_date}</Text>
             <Muted>From {teamName(h.from_squad_id)} · by {h.who} · {h.why}</Muted>
           </View>
@@ -857,6 +922,7 @@ function PlayerScreen({ id, boot, server, token, net, teamName }: any) {
 }
 
 function MovePlayer({ playerId, boot, user, primary, enqueue, pop, teamName }: any) {
+  const { s, C } = useVisual();
   const club = boot?.clubs?.find((c: any) => c.roster?.some((p: any) => p.player_id === playerId));
   const player = club?.roster?.find((p: any) => p.player_id === playerId);
   const [type, setType] = useState<'transfer' | 'loan' | 'release'>('transfer');
@@ -899,6 +965,7 @@ function MovePlayer({ playerId, boot, user, primary, enqueue, pop, teamName }: a
 
 // ---------- Sync status ----------
 function SyncScreen({ queue, lastSync, net, runSync, primary }: any) {
+  const { s, C } = useVisual();
   return (
     <ScrollView contentContainerStyle={s.list}>
       <H>Pending changes ({queue.length})</H>
@@ -928,13 +995,14 @@ function SyncScreen({ queue, lastSync, net, runSync, primary }: any) {
 
 // ---------- Settings ----------
 function Settings({ server, onServer, onLogout, primary, deviceId, user }: any) {
+  const { s, C } = useVisual();
   const [addr, setAddr] = useState(server);
   const [test, setTest] = useState<string | null>(null);
   return (
     <ScrollView contentContainerStyle={s.list}>
       <Card>
         <H>Server address</H>
-        <TextInput style={s.input} value={addr} onChangeText={setAddr} autoCapitalize="none" accessibilityLabel="Server address" />
+        <TextInput placeholderTextColor={C.muted} selectionColor={C.accent} style={s.input} value={addr} onChangeText={setAddr} autoCapitalize="none" accessibilityLabel="Server address" />
         <Muted>Emulator: http://10.0.2.2:8080 · Phone: http://LAPTOP-LAN-IP:8080</Muted>
         <View style={s.row}>
           <Btn label="Save" color={primary} onPress={() => onServer(addr.trim())} />
@@ -954,57 +1022,94 @@ function Settings({ server, onServer, onLogout, primary, deviceId, user }: any) 
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, minHeight: 60 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerSub: { color: '#e5e7eb', fontSize: 13 },
-  headerBtn: { minHeight: 48, minWidth: 48, justifyContent: 'center', paddingHorizontal: 6 },
-  headerBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  logo: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  logoText: { fontWeight: '800', fontSize: 16 },
-  netbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 3, minHeight: 44 },
-  netText: { fontSize: 14, fontWeight: '600', color: C.text },
-  list: { padding: 12, paddingBottom: 32 },
-  card: { backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#e5e7eb' },
-  h: { fontSize: 20, fontWeight: '700', color: C.text, marginVertical: 8 },
-  title: { fontSize: 24, fontWeight: '800', color: C.text, marginBottom: 4 },
-  muted: { color: C.muted, fontSize: 14, marginTop: 2 },
-  body: { color: C.text, fontSize: 16, marginVertical: 2 },
-  label: { color: C.text, fontSize: 15, fontWeight: '600', marginTop: 12, marginBottom: 6 },
-  input: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, minHeight: 48, fontSize: 16, backgroundColor: '#fff', color: C.text },
-  error: { color: C.bad, fontSize: 15, marginVertical: 8 },
-  btn: { minHeight: 48, borderRadius: 10, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center', marginVertical: 6, marginRight: 8 },
-  btnSmall: { minHeight: 44, paddingHorizontal: 12 },
-  btnText: { fontSize: 16, fontWeight: '700' },
-  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  team: { fontSize: 17, fontWeight: '600', color: C.text, flex: 1 },
-  score: { fontSize: 22, fontWeight: '800', color: C.text, marginHorizontal: 10 },
-  bigTeam: { fontSize: 18, fontWeight: '700', color: C.text, flex: 1 },
-  bigScore: { fontSize: 40, fontWeight: '900', marginHorizontal: 10 },
-  price: { fontSize: 20, fontWeight: '800', marginTop: 4 },
-  qty: { fontSize: 20, fontWeight: '700', marginHorizontal: 12, color: C.text },
-  badge: { borderWidth: 1.5, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, alignSelf: 'flex-start', marginLeft: 8 },
-  badgeText: { fontSize: 13, fontWeight: '700' },
-  empty: { padding: 32, alignItems: 'center' },
-  timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', minHeight: 48 },
-  timelineText: { fontSize: 15, color: C.text, flex: 1 },
-  struck: { textDecorationLine: 'line-through', color: C.muted },
-  tr: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 6, borderBottomWidth: 1, borderBottomColor: '#eee', minHeight: 52 },
-  th: { backgroundColor: '#e5e7eb' },
-  td: { flex: 1, textAlign: 'center', fontSize: 15, color: C.text },
-  tdTeam: { fontSize: 15, fontWeight: '600', color: C.text },
-  dayHeader: { fontSize: 15, fontWeight: '800', color: C.muted, marginTop: 14, marginBottom: 6, textTransform: 'uppercase' },
-  formChip: { width: 22, height: 22, borderRadius: 4, alignItems: 'center', justifyContent: 'center', marginRight: 3, marginTop: 3 },
-  formText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  step: { borderWidth: 1.5, borderColor: C.border, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, marginRight: 6, marginTop: 6 },
-  stepText: { fontSize: 13, fontWeight: '700', color: C.muted },
-  tabs: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#e5e7eb', backgroundColor: '#fff' },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 56, paddingVertical: 4 },
-  tabIcon: { fontSize: 18 },
-  tabText: { fontSize: 12, color: C.muted },
-  toast: { position: 'absolute', left: 16, right: 16, bottom: 72, backgroundColor: '#111827', padding: 14, borderRadius: 10 },
-  toastText: { color: '#fff', fontSize: 15 },
-});
+function createStyles(C: Palette, width: number) {
+  const wide = width >= 840;
+  const compact = width < 380;
+  const display = Platform.OS === 'android' ? 'sans-serif-condensed' : undefined;
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: C.bg },
+    workspace: { flex: 1, flexDirection: wide ? 'row-reverse' : 'column' },
+    screen: { flex: 1, minWidth: 0 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: wide ? 32 : 16, paddingVertical: 12, minHeight: 80, backgroundColor: C.bg, borderBottomWidth: 1, borderBottomColor: C.border },
+    headerTitle: { color: C.text, fontSize: compact ? 18 : 21, fontWeight: '900', letterSpacing: -0.6 },
+    headerSub: { color: C.muted, fontSize: 12, marginTop: 4 },
+    headerBtn: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 6 },
+    headerBtnText: { color: C.text, fontSize: 24, fontWeight: '600' },
+    logo: { width: 44, height: 48, borderRadius: 12, backgroundColor: C.accent, alignItems: 'center', justifyContent: 'center', transform: [{ skewX: '-6deg' }] },
+    logoText: { fontWeight: '900', fontSize: 18 },
+    themeToggle: { minHeight: 48, minWidth: 52, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.card },
+    themeEmoji: { fontSize: 19 },
+    themeLabel: { color: C.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+    netbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 4, paddingHorizontal: wide ? 32 : 18, paddingVertical: 10, backgroundColor: C.card, borderBottomWidth: 1, minHeight: 48 },
+    netText: { fontSize: compact ? 11 : 12, fontWeight: '600', color: C.muted },
+    list: { padding: wide ? 32 : 16, paddingBottom: 40, width: '100%', maxWidth: 1120, alignSelf: 'center' },
+    card: { backgroundColor: C.card, borderRadius: 16, padding: wide ? 24 : 18, marginBottom: 12 },
+    h: { fontSize: 25, fontWeight: '800', color: C.text, marginTop: 16, marginBottom: 12, letterSpacing: -0.6 },
+    title: { fontSize: wide ? 40 : 30, fontWeight: '900', color: C.text, marginBottom: 8, letterSpacing: -0.9, fontFamily: display },
+    pageTitle: { fontSize: wide ? 48 : 36, lineHeight: wide ? 54 : 42, fontWeight: '900', color: C.text, letterSpacing: -1.1, marginBottom: 8, fontFamily: display },
+    pageIntro: { marginBottom: 20 },
+    muted: { color: C.muted, fontSize: 13, lineHeight: 20, marginTop: 3, flexShrink: 1 },
+    body: { color: C.text, fontSize: 16, lineHeight: 23, marginVertical: 3, flexShrink: 1 },
+    label: { color: C.text, fontSize: 14, fontWeight: '700', marginTop: 20, marginBottom: 9 },
+    input: { borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, minHeight: 52, fontSize: 16, backgroundColor: C.input, color: C.text },
+    error: { color: C.bad, fontSize: 15, lineHeight: 22, marginVertical: 10 },
+    btn: { minHeight: 50, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 11, alignItems: 'center', justifyContent: 'center', marginVertical: 6, marginRight: 8, flexShrink: 1 },
+    btnSmall: { minHeight: 48, paddingHorizontal: 13 },
+    btnText: { fontSize: 14, fontWeight: '800', textAlign: 'center', letterSpacing: 0.1 },
+    row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 4 },
+    rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+    team: { fontSize: 17, fontWeight: '700', color: C.text, flex: 1 },
+    score: { fontSize: compact ? 26 : 32, fontWeight: '900', color: C.accent, marginHorizontal: 6, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+    bigTeam: { fontSize: compact ? 16 : 20, lineHeight: 25, fontWeight: '800', color: C.text, flex: 1 },
+    bigScore: { fontSize: compact ? 38 : wide ? 72 : 48, fontWeight: '900', marginHorizontal: 8, letterSpacing: -1, fontVariant: ['tabular-nums'] },
+    price: { fontSize: 26, fontWeight: '900', marginTop: 10, letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
+    qty: { fontSize: 24, fontWeight: '800', marginHorizontal: 16, color: C.text },
+    badge: { borderWidth: 1, borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, alignSelf: 'flex-start' },
+    badgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+    empty: { paddingVertical: 46, paddingHorizontal: 24, alignItems: 'center', alignSelf: 'center', maxWidth: 500 },
+    emptyEmoji: { fontSize: 44, marginBottom: 16 },
+    emptyTitle: { fontSize: 21, fontWeight: '800', color: C.text, marginBottom: 8, textAlign: 'center' },
+    timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.border, minHeight: 64 },
+    timelineText: { fontSize: 15, lineHeight: 22, color: C.text, flex: 1 },
+    struck: { textDecorationLine: 'line-through', color: C.muted },
+    tr: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, paddingVertical: 16, paddingHorizontal: compact ? 6 : 12, borderBottomWidth: 1, borderBottomColor: C.border, minHeight: 76 },
+    th: { backgroundColor: C.soft, minHeight: 44, paddingVertical: 12, marginTop: 18, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+    td: { flex: 1, textAlign: 'center', fontSize: 14, color: C.text, fontVariant: ['tabular-nums'] },
+    tdTeam: { fontSize: 15, fontWeight: '800', color: C.text },
+    dayHeader: { fontSize: 13, fontWeight: '800', color: C.muted, marginTop: 22, marginBottom: 12, letterSpacing: 1.3, textTransform: 'uppercase' },
+    formChip: { width: 22, height: 22, borderRadius: 5, alignItems: 'center', justifyContent: 'center', marginRight: 4, marginTop: 6 },
+    formText: { color: C.bg, fontSize: 11, fontWeight: '900' },
+    step: { borderWidth: 1, borderColor: C.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 9, marginRight: 6, marginTop: 8 },
+    stepText: { fontSize: 12, fontWeight: '700', color: C.muted },
+    tabs: { flexDirection: wide ? 'column' : 'row', borderTopWidth: wide ? 0 : 1, borderRightWidth: wide ? 1 : 0, borderColor: C.border, backgroundColor: C.bg, padding: wide ? 16 : 6, gap: wide ? 10 : 3, width: wide ? 200 : '100%' },
+    tab: { flex: wide ? 0 : 1, flexDirection: wide ? 'row' : 'column', alignItems: 'center', justifyContent: wide ? 'flex-start' : 'center', minHeight: 60, paddingHorizontal: wide ? 14 : 2, paddingVertical: 8, borderRadius: 12, gap: wide ? 12 : 4 },
+    tabSelected: { backgroundColor: C.accent },
+    tabIcon: { fontSize: 21 },
+    tabText: { fontSize: compact ? 10 : 12, color: C.muted, fontWeight: '600' },
+    tabTextSelected: { color: C.onAccent, fontWeight: '900' },
+    railTitle: { fontSize: 11, letterSpacing: 1.3, color: C.muted, fontWeight: '800', marginTop: 16, marginBottom: 18, paddingHorizontal: 12 },
+    toast: { position: 'absolute', left: wide ? 220 : 16, right: 16, bottom: 84, backgroundColor: C.accent, padding: 16, borderRadius: 12, zIndex: 10 },
+    toastText: { color: C.onAccent, fontSize: 14, lineHeight: 21, fontWeight: '700' },
+    todayCard: { backgroundColor: C.hero, borderRadius: 16, padding: wide ? 28 : 22, marginBottom: 20, overflow: 'hidden' },
+    todayHeadline: { color: C.heroText, fontSize: wide ? 38 : 27, lineHeight: wide ? 44 : 33, fontWeight: '900', letterSpacing: -0.7, marginVertical: 10, maxWidth: 680, fontFamily: display },
+    todayRole: { color: C.heroText, opacity: 0.75, fontSize: 12, fontWeight: '700' },
+    heroEmoji: { fontSize: 34, marginBottom: 6 },
+    fixtureScoreboard: { paddingVertical: 20, gap: 8 },
+    teamSide: { flex: 1, alignItems: 'center', gap: 9, minWidth: 0 },
+    crest: { width: 42, height: 46, borderRadius: 12, backgroundColor: C.soft, alignItems: 'center', justifyContent: 'center' },
+    crestText: { fontSize: 15, fontWeight: '900', color: C.accent },
+    matchTeam: { color: C.text, fontSize: 14, fontWeight: '700', textAlign: 'center' },
+    matchFooter: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 11, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    matchLink: { color: C.accent, fontSize: 12, fontWeight: '800' },
+    productVisual: { backgroundColor: C.soft, borderRadius: 12, minHeight: wide ? 200 : 156, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
+    productEmoji: { fontSize: wide ? 100 : 78 },
+    loginContent: { padding: wide ? 52 : 24, paddingBottom: 48, width: '100%', maxWidth: 580, alignSelf: 'center' },
+    loginBrand: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 36 },
+    loginWordmark: { color: C.text, fontSize: 23, fontWeight: '900', letterSpacing: -0.8 },
+    loginHeadline: { fontSize: wide ? 64 : 49, lineHeight: wide ? 67 : 53, color: C.text, fontWeight: '900', letterSpacing: -1.5, marginBottom: 14, fontFamily: display },
+    loginAccent: { color: C.hot },
+    loginForm: { marginTop: 12 },
+    loginFooter: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 28, paddingTop: 20, borderTopWidth: 1, borderTopColor: C.border },
+  });
+}
