@@ -1,4 +1,5 @@
 import { scryptSync } from 'node:crypto';
+import { seedDemo } from './demo-seed.js';
 import { Db, Tx } from './db.service.js';
 
 const FULL_TIE_BREAK = ['h2h_points', 'h2h_diff', 'overall_diff', 'scored', 'fair_play', 'draw_lots'];
@@ -90,6 +91,7 @@ export async function resetAll(db: Db, seed: number, stock: Record<string, numbe
     }
     await db.put('discount', 'WELCOME10', { code: 'WELCOME10', percent: 10 }, c);
 
+    await seedDemo(db, c);
     await c.query(`INSERT INTO meta(key,value) VALUES ('seed',$1),('seeded','true')`, [JSON.stringify(seed)]);
   });
 }
