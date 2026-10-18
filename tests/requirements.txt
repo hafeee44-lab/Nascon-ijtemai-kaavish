@@ -1,0 +1,4 @@
+selenium==4.25.0
+pytest>=8.0
+pytest-xdist>=3.5
+Appium-Python-Client>=4.0

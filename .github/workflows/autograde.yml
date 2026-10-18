@@ -1,0 +1,76 @@
+name: autograde
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  autograde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Real salts come from repository secrets; the fallbacks only make the pipeline runnable on forks.
+      DAY1_SALT: ${{ secrets.DAY1_SALT || 'ciDay1Salt000000' }}
+      DAY2_SALT: ${{ secrets.DAY2_SALT || 'ciDay2Salt000000' }}
+      BASE_URL: http://api:8080          # how grid browser nodes reach the API (compose network)
+      API_URL: http://localhost:8080     # how this runner reaches the API
+      SELENIUM_URL: http://localhost:4444
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bring up the full Phase I + II stack
+        run: docker compose up -d --build
+
+      - name: Wait for API health (120 s budget)
+        run: |
+          for i in $(seq 1 120); do
+            if curl -sf http://localhost:8080/health; then echo; exit 0; fi
+            sleep 1
+          done
+          docker compose ps; docker compose logs --tail=80 api; exit 1
+
+      - name: Verify Selenium Grid 4 is ready with >= 3 nodes
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:4444/status | python3 -c "import json,sys; v=json.load(sys.stdin)['value']; sys.exit(0 if v['ready'] and len(v['nodes'])>=3 else 1)"; then
+              echo "grid ready"; exit 0
+            fi
+            sleep 2
+          done
+          curl -s http://localhost:4444/status; exit 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Contract probes (Phase I regression + Phase II)
+        run: |
+          python3 tests/smoke_test.py
+          python3 tests/smoke_day2.py
+
+      - name: Selenium Grid 4 suite (parallel)
+        run: pytest -n 3 tests/selenium/ --junitxml=tests/reports/selenium-report.xml
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: k6 smoke (reduced scale of the graded profile)
+        env:
+          VIEWERS: "20"
+          POSTERS: "5"
+          DURATION: 5s
+        run: k6 run --summary-export=tests/reports/k6-smoke.json tests/k6_load.js
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: tests/reports/
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
