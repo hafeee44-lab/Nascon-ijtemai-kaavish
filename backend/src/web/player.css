@@ -1,6 +1,6 @@
 /* NaSCon Live — guest web player. Match CLUB|HOUSE athletic dark theme.
    WCAG 2.1 AA compliant: all text ≥ 4.5:1 on background, 48px targets, visible focus. */
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Poppins:wght@400;600;700;800&display=swap');
+/* Fonts are self-hosted in assets/site.css (works offline at the venue). */
 
 :root {
   --bg: #151515;
@@ -292,3 +292,16 @@ input::placeholder { color: var(--muted); }
 /* Video overlay alignment: status note centred in the frame, pinned merch level with the score badge. */
 .ov-merch { position: absolute; top: 14px; right: 14px; }
 .offline-note { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); white-space: nowrap; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; }
+
+/* Phones: the video frame must not grow past the screen (grid items default to min-content width),
+   and the overlay merch chip is dropped there — the pinned merch card below the player carries it. */
+.stage { grid-template-columns: minmax(0, 1fr); }
+.player-wrap { width: 100%; }
+@media (max-width: 520px) {
+  .ov-merch { display: none; }
+  .controls { left: 10px; right: 10px; bottom: 10px; gap: 6px; }
+  .ctl { padding: 0 12px; font-size: 14px; }
+}
+
+/* "Open in the app" deep-link button under the scoreboard. */
+.app-link { display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--text); }

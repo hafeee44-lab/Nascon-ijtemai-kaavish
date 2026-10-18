@@ -87,6 +87,15 @@ export class CostreamService {
     return this.db.get('costream', id);
   }
 
+  /** Active sessions, newest first — lets the app offer "join a co-stream" without a deep link. */
+  async list() {
+    const r = await this.db.query(`SELECT data FROM docs WHERE kind='costream' AND data->'body'->>'status'='active' ORDER BY data->>'updated_at' DESC LIMIT 20`);
+    return r.rows.map((x: any) => {
+      const b = x.data.body;
+      return { session_id: b.session_id, active_host: b.active_host, participant_count: b.participant_count, layout: b.layout, status: b.status };
+    });
+  }
+
   private async mutate(id: string, fn: (body: any) => any, eventType: string) {
     return this.db.tx(async (c) => {
       const doc = await this.db.getForUpdate(c, 'costream', id);

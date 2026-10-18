@@ -685,6 +685,10 @@ function MatchDetail({ id, server, token, net, boot, teamName, primary, user, en
         </View>
       </Card>
 
+      {status === 'in_progress' && (
+        <Btn label="▶ Watch live & co-streams" color={primary} testID="open-match-live" onPress={() => push({ name: 'matchLive', id })} />
+      )}
+
       {canScore && (
         <Card>
           <H>Scoring</H>
@@ -1257,6 +1261,15 @@ function MatchLiveScreen({ id, server, token, net, boot, teamName, primary, user
   const isLive = m?.status === 'in_progress';
   const webPlayerUrl = `${server}/web/matches/${id}/live`;
   const pinnedProduct = m?.pinned_product ?? boot?.products?.[0];
+  const [sessions, setSessions] = useState<any[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => request<any>(server, '/api/v1/costream', { token, timeoutMs: 4000 })
+      .then((d) => { if (alive) setSessions(d?.sessions ?? []); }).catch(() => undefined);
+    load();
+    const t = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(t); };
+  }, [server, token]);
 
   return (
     <View testID="screen-match-live" accessibilityLabel="screen-match-live" style={{ flex: 1 }}>
@@ -1278,6 +1291,25 @@ function MatchLiveScreen({ id, server, token, net, boot, teamName, primary, user
             <Muted>Watch live with real-time score overlays and instant chat.</Muted>
             <Btn label="▶ Watch in Web Player" color={primary} onPress={() => Linking.openURL(webPlayerUrl)} />
           </View>
+        </Card>
+
+        {/* Live co-streams: join without a deep link */}
+        <Card>
+          <View style={s.rowBetween}>
+            <H>Live co-streams</H>
+            <Badge text={`${sessions.length} live`} color={sessions.length ? C.bad : C.muted} />
+          </View>
+          {sessions.length === 0 ? (
+            <Muted>No co-streams are live right now.</Muted>
+          ) : sessions.map((cs: any) => (
+            <View key={cs.session_id} style={[s.rowBetween, { marginTop: 10 }]}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={[s.body, { fontWeight: '700' }]} numberOfLines={1}>{cs.session_id}</Text>
+                <Muted>{`Host ${cs.active_host} · ${cs.participant_count} creators · ${cs.layout}`}</Muted>
+              </View>
+              <Btn small label="Join" color={primary} testID={`join-${cs.session_id}`} onPress={() => push({ name: 'costream', id: cs.session_id })} />
+            </View>
+          ))}
         </Card>
 
         {/* Live Scorecard */}
@@ -1402,7 +1434,7 @@ function CostreamScreen({ id, server, token, net, boot, teamName, primary, user,
     }
   };
 
-  const participants = session?.participants ?? ['player-alpha-1', 'player-beta-1'];
+  const participants: string[] = session?.active_participants ?? session?.participants ?? [];
 
   return (
     <View testID="screen-costream" accessibilityLabel="screen-costream" style={{ flex: 1 }}>
@@ -1436,14 +1468,14 @@ function CostreamScreen({ id, server, token, net, boot, teamName, primary, user,
             {participants.map((pid: string) => {
               const isHost = pid === activeHost;
               return (
-                <View key={pid} style={{ flex: 1, minWidth: 140, padding: 12, backgroundColor: isHost ? C.card : C.soft, borderRadius: 10, borderWidth: 1, borderColor: isHost ? C.warn : C.border }}>
+                <View key={pid} style={{ flexBasis: '100%', padding: 12, backgroundColor: isHost ? C.card : C.soft, borderRadius: 10, borderWidth: 1, borderColor: isHost ? C.warn : C.border }}>
                   <View style={s.rowBetween}>
                     <Text style={[s.body, { fontWeight: '700' }]}>{pid}</Text>
                     {isHost && <Badge text="👑 Host" color={C.warn} />}
                   </View>
                   <Muted>{isHost ? 'Active Broadcaster' : 'Co-Host'}</Muted>
                   {/* Host Controls */}
-                  <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
                     <Btn small kind="outline" label="Mute" color={C.warn} onPress={() => handleControl('mute', pid)} />
                     <Btn small kind="outline" label="Spot" color={primary} onPress={() => handleControl('spotlight', pid)} />
                     {!isHost && <Btn small kind="outline" label="Kick" color={C.bad} onPress={() => handleControl('kick', pid)} />}

@@ -56,6 +56,11 @@ export class Day2Controller {
     res.status(r.status).json(r.body);
   }
 
+  @Get('api/v1/costream')
+  async costreamList() {
+    return { sessions: await this.costream.list() };
+  }
+
   @Get('api/v1/costream/:id')
   async costreamGet(@Param('id') id: string) {
     const s = await this.costream.get(id);
@@ -178,7 +183,7 @@ export class Day2Controller {
   // ---------- NFR-1 realtime (SSE): live score + chat + overlays for one match / room ----------
   @Get('api/v1/matches/:id/stream')
   matchStream(@Param('id') id: string, @Req() req: Request, @Res() res: Response) {
-    this.sse(req, res, (e) => e.data.match_id === id || e.data.chat_room_id === `chat-${id}` || e.type === 'match.product_pinned' && e.data.match_id === id,
+    this.sse(req, res, (e) => e.data.match_id === id || e.data.chat_room_id === `chat-${id}` || e.type === 'match.product_pinned' && e.data.match_id === id || e.type === 'stream.key_revoked',
       async () => this.scoreSnapshot(id));
   }
 
