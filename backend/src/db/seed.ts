@@ -1,4 +1,5 @@
 import { scryptSync } from 'node:crypto';
+import { seedDay2 } from './day2-seed.js';
 import { seedDemo } from './demo-seed.js';
 import { Db, Tx } from './db.service.js';
 
@@ -62,7 +63,7 @@ export const DEMO_USERS = [
 
 export async function resetAll(db: Db, seed: number, stock: Record<string, number>) {
   await db.tx(async (c: Tx) => {
-    await c.query('TRUNCATE docs, match_events, inventory, roster_audit, meta RESTART IDENTITY');
+    await c.query('TRUNCATE docs, match_events, inventory, roster_audit, meta, qr_telemetry, dlq, chat_messages, follows, inventory_audit RESTART IDENTITY');
     for (const s of BASE_SPORTS) await db.put('sport', s.sport_id, s, c);
     await db.put('tenant', 'tenant-alpha', { tenant_id: 'tenant-alpha', name: 'Alpha Sports', logo_url: null, colors: { primary: '#1d4ed8', secondary: '#f59e0b' } }, c);
     await db.put('tenant', 'tenant-beta', { tenant_id: 'tenant-beta', name: 'Beta Athletics', logo_url: null, colors: { primary: '#047857', secondary: '#e11d48' } }, c);
@@ -71,7 +72,7 @@ export async function resetAll(db: Db, seed: number, stock: Record<string, numbe
       await db.put('scenario_league', id, { league_id: id, tenant_id: tenant, sport_id: 'football' }, c);
     for (const [id, tenant] of [['club-alpha-1', 'tenant-alpha'], ['club-alpha-2', 'tenant-alpha'], ['club-beta-1', 'tenant-beta']])
       await db.put('club', id, { club_id: id, tenant_id: tenant, name: id }, c);
-    for (const [id, club, tenant] of [['player-alpha-1', 'club-alpha-1', 'tenant-alpha'], ['player-alpha-2', 'club-alpha-2', 'tenant-alpha'], ['player-beta-1', 'club-beta-1', 'tenant-beta']])
+    for (const [id, club, tenant] of [['player-alpha-1', 'club-alpha-1', 'tenant-alpha'], ['player-alpha-2', 'club-alpha-2', 'tenant-alpha'], ['player-beta-1', 'club-beta-1', 'tenant-beta'], ['player-beta-2', 'club-beta-1', 'tenant-beta']])
       await db.put('scenario_player', id, { player_id: id, club_id: club, tenant_id: tenant }, c);
 
     const pw = hashPassword(DEMO_PASSWORD);
@@ -92,6 +93,7 @@ export async function resetAll(db: Db, seed: number, stock: Record<string, numbe
     await db.put('discount', 'WELCOME10', { code: 'WELCOME10', percent: 10 }, c);
 
     await seedDemo(db, c);
+    await seedDay2(db, c);
     await c.query(`INSERT INTO meta(key,value) VALUES ('seed',$1),('seeded','true')`, [JSON.stringify(seed)]);
   });
 }

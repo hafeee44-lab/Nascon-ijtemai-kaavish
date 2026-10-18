@@ -15,6 +15,15 @@ export function salt(): string {
   return process.env.DAY1_SALT ?? '';
 }
 
+export function salt2(): string {
+  return process.env.DAY2_SALT ?? '';
+}
+
+// Day 2 (spec Part II §5.3): HMAC_SHA256(DAY2_SALT, entity_id + "|" + canonical(sig_payload)), lowercase hex.
+export function signDay2(entityId: string, payload: unknown, key: string = salt2()): string {
+  return sign(entityId, payload, key);
+}
+
 // signature = HMAC_SHA256(DAY1_SALT, id + "|" + canonical(payload)), lowercase hex.
 export function sign(id: string, payload: unknown, key: string = salt()): string {
   return createHmac('sha256', Buffer.from(key, 'utf8'))

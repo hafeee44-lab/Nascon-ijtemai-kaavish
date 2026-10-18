@@ -5,9 +5,9 @@ import { isId, isInt, isObj, isStr } from '../common/validate.js';
 import { Db, Tx } from '../db/db.service.js';
 import { DomainEvents } from '../queue/domain-events.js';
 import type { SportConfig } from '../sports/sport-config.js';
-import { MatchInfo, Projection, project, scoringLimit, StoredEvent } from './projection.js';
+import { MatchInfo, Projection, project, scoringLimit, STATUS_EVENTS, StoredEvent } from './projection.js';
 
-const TYPES = ['match_init', 'match_start', 'score', 'discipline', 'tiebreak_winner', 'match_end', 'compensation'];
+const TYPES = ['match_init', 'match_start', 'score', 'discipline', 'tiebreak_winner', 'match_end', 'compensation', ...Object.keys(STATUS_EVENTS)];
 
 export interface EventResult {
   status: 200 | 201;
@@ -90,7 +90,9 @@ export class EventsService {
   private publish(r: EventResult) {
     const { event_id, match_id, type, sequence } = r.body;
     void this.domainEvents.emit('match.event_appended', { match_id, event_id, type, sequence });
-    if (type === 'match_init' || type === 'match_start' || type === 'match_end')
+    if (type in STATUS_EVENTS)
+      void this.domainEvents.emit('match.status_changed', { match_id, status: STATUS_EVENTS[type] });
+    else if (type === 'match_init' || type === 'match_start' || type === 'match_end')
       void this.domainEvents.emit('match.status_changed', { match_id, status: type === 'match_init' ? 'upcoming' : type === 'match_start' ? 'in_progress' : 'completed' });
   }
 
@@ -151,6 +153,12 @@ export class EventsService {
       case 'tiebreak_winner':
         if (!sides.includes(p.team_id)) throw validationError(['payload.team_id'], 'team_id is not a side of this match.');
         if (proj.status !== 'in_progress') throw notInProgress();
+        return;
+      case 'match_postpone': case 'match_postponed': case 'postpone':
+      case 'match_cancel': case 'match_cancelled': case 'cancel':
+      case 'match_abandon': case 'match_abandoned': case 'abandon':
+        if (proj.status === 'completed' || proj.status === 'cancelled')
+          throw conflict('ILLEGAL_TRANSITION', `Cannot change a match that is ${proj.status}.`, { match_id: match.match_id, from: proj.status, to: STATUS_EVENTS[type] });
         return;
       case 'match_end':
         if (proj.status !== 'in_progress')

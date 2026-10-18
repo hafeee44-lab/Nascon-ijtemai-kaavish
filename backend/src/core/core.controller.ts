@@ -3,12 +3,13 @@ import type { Response } from 'express';
 import { validationError } from '../common/api-error.js';
 import { Db } from '../db/db.service.js';
 import { BASE_SPORTS, resetAll } from '../db/seed.js';
+import { DomainEvents } from '../queue/domain-events.js';
 
 const DEFAULT_STOCK = { 'var-jersey-001-M': 1, 'var-jersey-001-L': 5 };
 
 @Controller()
 export class CoreController {
-  constructor(private readonly db: Db) {}
+  constructor(private readonly db: Db, private readonly events: DomainEvents) {}
 
   // Spec 5.4: 200 only when the DB is reachable and baseline data is seeded.
   @Get('health')
@@ -38,6 +39,7 @@ export class CoreController {
       }
     }
     await resetAll(this.db, seed, stock);
+    await this.events.emit('system.reset', { seed });
     return {
       status: 'reset_complete',
       seed,

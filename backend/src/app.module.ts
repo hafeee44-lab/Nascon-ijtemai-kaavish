@@ -1,6 +1,12 @@
 import { Module } from '@nestjs/common';
 import { CoreController } from './core/core.controller.js';
 import { Db } from './db/db.service.js';
+import { CostreamService } from './costream/costream.js';
+import { Day2Controller } from './day2/day2.controller.js';
+import { ModerationService } from './moderation_dlq/moderation.service.js';
+import { GuestService } from './qr_guest/guest.js';
+import { QrService } from './qr_guest/qr.js';
+import { StreamKeysService } from './streaming/stream-keys.js';
 import { RealtimeController } from './realtime/realtime.controller.js';
 import { MobileController } from './mobile/mobile.controller.js';
 import { FixturesController } from './fixtures/fixtures.controller.js';
@@ -22,8 +28,8 @@ import { OfflineSyncService } from './sync/offline-sync.service.js';
   imports: [],
   controllers: [
     CoreController, SportsController, EventsController, LeaguesController, StoreController, RbacController,
-    RosterController, OfflineSyncController, FixturesController, MobileController, RealtimeController,
+    RosterController, OfflineSyncController, FixturesController, MobileController, RealtimeController, Day2Controller,
   ],
-  providers: [LeaguesController, Db, EventsService, StoreService, DomainEvents, AuthService, RosterService, OfflineSyncService],
+  providers: [StreamKeysService, CostreamService, QrService, GuestService, ModerationService, LeaguesController, Db, EventsService, StoreService, DomainEvents, AuthService, RosterService, OfflineSyncService],
 })
 export class AppModule {}

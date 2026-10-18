@@ -1,5 +1,12 @@
 import type { SportConfig } from '../sports/sport-config.js';
 
+// Day 2: schedule-state events (QR targets react to them).
+export const STATUS_EVENTS: Record<string, 'postponed' | 'cancelled' | 'abandoned'> = {
+  match_postpone: 'postponed', match_postponed: 'postponed', postpone: 'postponed',
+  match_cancel: 'cancelled', match_cancelled: 'cancelled', cancel: 'cancelled',
+  match_abandon: 'abandoned', match_abandoned: 'abandoned', abandon: 'abandoned',
+};
+
 export interface StoredEvent {
   seq: number;
   event_id: string;
@@ -26,7 +33,7 @@ export interface SideScore {
 }
 
 export interface Projection {
-  status: 'upcoming' | 'in_progress' | 'completed';
+  status: 'upcoming' | 'in_progress' | 'completed' | 'postponed' | 'cancelled' | 'abandoned';
   outcome: 'pending' | 'home_win' | 'away_win' | 'draw' | 'undecided';
   winner_team_id: string | null;
   tiebreak_winner_team_id: string | null;
@@ -54,6 +61,7 @@ export function project(sport: SportConfig, match: MatchInfo, events: StoredEven
   for (const e of events) {
     if (e.type === 'match_start') status = 'in_progress';
     else if (e.type === 'match_end') status = 'completed';
+    else if (e.type in STATUS_EVENTS) status = STATUS_EVENTS[e.type];
     if (compensatedBy.has(e.event_id) || e.type === 'compensation') continue;
     const s = e.payload?.team_id === home.team_id ? home : e.payload?.team_id === away.team_id ? away : null;
     if (e.type === 'score' && s) {

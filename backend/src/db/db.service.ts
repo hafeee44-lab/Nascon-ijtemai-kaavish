@@ -20,6 +20,19 @@ CREATE TABLE IF NOT EXISTS roster_audit (
   seq bigserial PRIMARY KEY, audit_id text NOT NULL UNIQUE,
   player_id text NOT NULL, data jsonb NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key text PRIMARY KEY, value jsonb NOT NULL);
+CREATE TABLE IF NOT EXISTS qr_telemetry (
+  entity_id text NOT NULL, device_family text NOT NULL, hour_bucket text NOT NULL, scans int NOT NULL DEFAULT 0,
+  PRIMARY KEY (entity_id, device_family, hour_bucket));
+CREATE TABLE IF NOT EXISTS dlq (
+  seq bigserial PRIMARY KEY, event_id text NOT NULL, data jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS chat_messages (
+  seq bigserial PRIMARY KEY, room text NOT NULL, sender text NOT NULL, text text NOT NULL,
+  flagged boolean NOT NULL DEFAULT false, reason text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id text NOT NULL, athlete_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (follower_id, athlete_id));
+CREATE TABLE IF NOT EXISTS inventory_audit (
+  seq bigserial PRIMARY KEY, variant_id text NOT NULL, delta int NOT NULL, reason text, actor text, created_at timestamptz NOT NULL DEFAULT now());
 `;
 
 export type Tx = pg.PoolClient;

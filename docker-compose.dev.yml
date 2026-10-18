@@ -1,0 +1,6 @@
+# Local development only: expose the databases so the API can run on the host (npm run start:dev).
+services:
+  postgres:
+    ports: ["5432:5432"]
+  redis:
+    ports: ["6379:6379"]

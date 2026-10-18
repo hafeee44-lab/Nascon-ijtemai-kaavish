@@ -28,8 +28,10 @@
     "jsonwebtoken": "^9.0.3",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
@@ -41,7 +43,9 @@
     "@types/node": "^24.0.0",
     "@types/pdfkit": "^0.17.6",
     "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.0.0",
+    "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "^4.1.2",
     "oxlint": "^1.58.0",
     "oxlint-tsgolint": "^7.0.2001",
