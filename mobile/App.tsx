@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo, Animated, Easing, ActivityIndicator, Alert, BackHandler, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
+  AccessibilityInfo, Animated, Easing, ActivityIndicator, Alert, BackHandler, FlatList, Image, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native';
 import Svg, { Path, Circle, Rect, Line, Text as SvgText } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { ApiFailure, friendly, nowIso, pkr, request, today, uid } from './src/api';
+import { parseAppDeepLink } from './src/deepLinks';
 import { getJson, removeKey, savePdf, secure, setJson } from './src/storage';
 
 // ---------- types ----------
@@ -15,8 +16,11 @@ type SyncLine = { label: string; status: string; message: string };
 type Route =
   | { name: 'tabs' } | { name: 'match'; id: string } | { name: 'product'; id: string } | { name: 'cart' }
   | { name: 'receipt'; order: any } | { name: 'club'; id: string } | { name: 'move'; playerId: string } | { name: 'settings' }
-  | { name: 'player'; id: string } | { name: 'orders' };
+  | { name: 'player'; id: string } | { name: 'orders' } | { name: 'match-live'; id: string }
+  | { name: 'costream'; id: string } | { name: 'qr'; code: string };
 type Tab = 'calendar' | 'fixtures' | 'standings' | 'store' | 'club' | 'sync' | 'control';
+
+const isGuestRoute = (route: Route) => ['match-live', 'costream', 'player', 'club', 'qr'].includes(route.name);
 
 const ROLE_LABEL: Record<string, string> = {
   super_admin: 'Platform Super-Admin', league_organizer: 'League Organizer', club_manager: 'Club Manager', player: 'Player', viewer: 'Viewer',
@@ -217,8 +221,10 @@ export default function App() {
 function Root() {
   const { s, C, dark, wide } = useVisual();
   const [ready, setReady] = useState(false);
+  const [initialLinkReady, setInitialLinkReady] = useState(false);
   const [server, setServer] = useState('http://10.0.2.2:8080');
   const [token, setToken] = useState<string | null>(null);
+  const [guestToken, setGuestToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [boot, setBoot] = useState<any>(null);
   const [net, setNet] = useState<Net>('offline');
@@ -230,12 +236,20 @@ function Root() {
   const [cart, setCart] = useState<{ variant_id: string; quantity: number; name: string; price: number }[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
+  const [showLogin, setShowLogin] = useState(false);
   const syncing = useRef(false);
+  const route = stack[stack.length - 1];
 
   const primary = boot?.tenant?.colors?.primary ?? '#1d4ed8';
   const push = (r: Route) => setStack((x) => [...x, r]);
   const pop = useCallback(() => setStack((x) => (x.length > 1 ? x.slice(0, -1) : x)), []);
   const say = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
+  const openDeepLink = useCallback((url: string) => {
+    const next = parseAppDeepLink(url);
+    if (!next) return;
+    setStack([{ name: 'tabs' }, next]);
+    setShowLogin(false);
+  }, []);
 
   // restore persisted state (works fully offline)
   useEffect(() => {
@@ -254,6 +268,26 @@ function Root() {
       setReady(true);
     })();
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const subscription = Linking.addEventListener('url', ({ url }) => openDeepLink(url));
+    Linking.getInitialURL().then((url) => {
+      if (alive && url) openDeepLink(url);
+    }).catch(() => undefined).finally(() => {
+      if (alive) setInitialLinkReady(true);
+    });
+    return () => { alive = false; subscription.remove(); };
+  }, [openDeepLink]);
+
+  useEffect(() => {
+    if (!ready || token || guestToken || !isGuestRoute(route)) return;
+    let alive = true;
+    request<any>(server, '/api/v1/guest/token', { method: 'POST' })
+      .then((result) => { if (alive) setGuestToken(result.guest_token); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [ready, route.name, server, token, guestToken]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -331,15 +365,21 @@ function Root() {
     else say('Saved offline. It will sync when you are back online.');
   };
 
-  if (!ready) return <View style={s.center}><ActivityIndicator size="large" /></View>;
+  if (!ready || !initialLinkReady) return <View style={s.center}><ActivityIndicator size="large" /></View>;
 
-  if (!token || !user)
+  if (showLogin || ((!token || !user) && !isGuestRoute(route)))
     return (
       <Login server={server} onServer={async (v) => { setServer(v); await setJson('server', v); }}
-        onDone={async (t, u) => { await secure.set('token', t); await setJson('user', u); setToken(t); setUser(u); setStack([{ name: 'tabs' }]); }} />
+        onDone={async (t, u) => {
+          await secure.set('token', t); await setJson('user', u); setToken(t); setUser(u); setShowLogin(false);
+          setStack((current) => isGuestRoute(current[current.length - 1]) ? current : [{ name: 'tabs' }]);
+        }} />
     );
 
-  const route = stack[stack.length - 1];
+  if (!token || !user)
+    return <GuestDeepLinkShell route={route} server={server} guestToken={guestToken} onSignIn={() => setShowLogin(true)}
+      onResolved={(next: Route) => setStack([{ name: 'tabs' }, next])} />;
+
   const teamName = (id: string) => boot?.clubs?.find((c: any) => c.club_id === id)?.name ?? id;
   const saveOrder = async (o: any) => { const next = [o, ...orders].slice(0, 30); setOrders(next); await setJson('orders', next); };
   const ctx = { server, token, user, boot, net, primary, push, pop, teamName, enqueue, say, cart, setCart, queue, lastSync, runSync, refresh, deviceId, setTab, orders, saveOrder };
@@ -356,7 +396,7 @@ function Root() {
           <View style={s.brandLockup}><View style={s.brandMark}><Svg width={28} height={28} viewBox="0 0 28 28"><Path d="M6 7h16v5H11v10H6z M15 15h5v7h-5z" fill="#fff"/></Svg></View><Text style={s.brandName} numberOfLines={1}>CLUB|HOUSE</Text></View>
         )}
         <View style={{ flex: 1, marginHorizontal: 16, display:wide||stack.length>1?'flex':'none' }}>
-          <Text style={s.headerTitle} numberOfLines={1}>{wide ? (boot?.tenant?.name ?? 'Club House') : route.name === 'club' ? 'Club' : route.name === 'match' ? 'Match' : route.name === 'settings' ? 'Settings' : 'Club House'}</Text>
+          <Text style={s.headerTitle} numberOfLines={1}>{wide ? (boot?.tenant?.name ?? 'Club House') : route.name === 'club' ? 'Club' : route.name === 'match' ? 'Match' : route.name === 'match-live' ? 'Match Live' : route.name === 'costream' ? 'Co-stream' : route.name === 'settings' ? 'Settings' : 'Club House'}</Text>
           <Text style={[s.headerSub, !wide && {display:'none'}]} numberOfLines={1}>{ROLE_LABEL[user.role]} · {user.email}</Text>
         </View>
         {!wide&&stack.length===1&&<View style={{flex:1}}/>}<ThemeToggle />
@@ -375,6 +415,9 @@ function Root() {
         {route.name === 'tabs' && tab === 'control' && <ControlTab {...ctx} />}
         {route.name === 'tabs' && tab === 'sync' && <SyncScreen {...ctx} />}
         {route.name === 'match' && <MatchDetail {...ctx} id={route.id} />}
+        {route.name === 'match-live' && <MatchLiveScreen id={route.id} server={server} token={token} guestToken={guestToken} teamName={teamName} />}
+        {route.name === 'costream' && <CoStreamScreen id={route.id} server={server} token={token} guestToken={guestToken} user={user} onSignIn={() => setShowLogin(true)} />}
+        {route.name === 'qr' && <QrRedirectScreen code={route.code} server={server} onResolved={(next: Route) => setStack([{ name: 'tabs' }, next])} />}
         {route.name === 'product' && <ProductScreen {...ctx} id={route.id} />}
         {route.name === 'cart' && <CartScreen {...ctx} />}
         {route.name === 'receipt' && <Receipt {...ctx} order={route.order} />}
@@ -391,6 +434,263 @@ function Root() {
       {route.name === 'tabs' && !wide && <Navigation tab={tab} onSelect={setTab} queue={queue} cart={cart} user={user} onSettings={() => push({name:'settings'})} />}
       </View></View></View>
     </SafeAreaView>
+  );
+}
+
+function GuestDeepLinkShell({ route, server, guestToken, onSignIn, onResolved }: any) {
+  const { s } = useVisual();
+  return (
+    <SafeAreaView style={s.root} edges={['top', 'bottom']}>
+      <View style={s.appFrame}>
+        <View style={s.header}>
+          <View style={s.brandLockup}><Text style={s.brandName}>CLUB|HOUSE</Text></View>
+          <View style={{ flex: 1 }} />
+          <ThemeToggle />
+          <Btn small kind="outline" label="Sign in" color="#d93d30" testID="guest-sign-in" onPress={onSignIn} />
+        </View>
+        <View style={s.workspace}>
+          <MotionPanel style={s.screen} transitionKey={`${route.name}-${route.id ?? route.code}`}>
+            {route.name === 'match-live' && <MatchLiveScreen id={route.id} server={server} guestToken={guestToken} />}
+            {route.name === 'costream' && <CoStreamScreen id={route.id} server={server} guestToken={guestToken} onSignIn={onSignIn} />}
+            {route.name === 'qr' && <QrRedirectScreen code={route.code} server={server} onResolved={onResolved} />}
+            {(route.name === 'player' || route.name === 'club') && <GuestEntityScreen kind={route.name} id={route.id} server={server} />}
+          </MotionPanel>
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function MatchLiveScreen({ id, server, token, guestToken, teamName = (value: string) => value }: any) {
+  const { s, C } = useVisual();
+  const [snapshot, setSnapshot] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const xhr = new XMLHttpRequest();
+    let received = 0;
+    let pending = '';
+    const endpoint = `${server.replace(/\/$/, '')}/api/v1/matches/${encodeURIComponent(id)}/stream`;
+    const consume = () => {
+      const chunk = xhr.responseText.slice(received).replace(/\r\n/g, '\n');
+      received = xhr.responseText.length;
+      pending += chunk;
+      let boundary = pending.indexOf('\n\n');
+      while (boundary >= 0) {
+        const block = pending.slice(0, boundary);
+        pending = pending.slice(boundary + 2);
+        const data = block.split('\n').filter((line: string) => line.startsWith('data:'))
+          .map((line: string) => line.slice(5).trim()).join('\n');
+        if (data) {
+          try {
+            const value = JSON.parse(data);
+            if (value?.match_id === id) { setSnapshot(value); setError(null); }
+          } catch { /* Ignore partial or unrelated event payloads. */ }
+        }
+        boundary = pending.indexOf('\n\n');
+      }
+    };
+    xhr.open('GET', endpoint, true);
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+    const authToken = token ?? guestToken;
+    if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+    xhr.onprogress = consume;
+    xhr.onerror = () => setError('Live score is temporarily unavailable.');
+    xhr.send();
+    return () => xhr.abort();
+  }, [id, server, token, guestToken]);
+
+  const openPlayer = () => { void Linking.openURL(`${server.replace(/\/$/, '')}/web/matches/${encodeURIComponent(id)}/live`).catch(() => setError('Could not open the live player.')); };
+  const status = snapshot?.status?.replace(/_/g, ' ') ?? 'connecting';
+  return (
+    <ScrollView contentContainerStyle={s.list} testID="screen-match-live" accessibilityLabel="screen-match-live">
+      <PageHeading title="Match Live" detail={id} />
+      <Card testID="match-live-score">
+        <View style={s.rowBetween}>
+          <Badge text={status} color={snapshot?.status === 'in_progress' ? C.bad : C.muted} />
+          <Muted>Live score</Muted>
+        </View>
+        <View style={[s.rowBetween, { marginTop: 12 }]}>
+          <Text style={[s.bigTeam, { flex: 1, textAlign: 'center' }]} numberOfLines={2}>{teamName(snapshot?.home ?? 'Home')}</Text>
+          <Text style={[s.bigScore, { color: C.accent }]} accessibilityLiveRegion="polite">
+            {snapshot ? `${snapshot.home_score} – ${snapshot.away_score}` : '– : –'}
+          </Text>
+          <Text style={[s.bigTeam, { flex: 1, textAlign: 'center' }]} numberOfLines={2}>{teamName(snapshot?.away ?? 'Away')}</Text>
+        </View>
+        <Muted>{error ?? (snapshot ? 'Score updates live from the match feed.' : 'Connecting to the live match feed…')}</Muted>
+      </Card>
+      <Card>
+        <H>Live coverage</H>
+        <Muted>Video is available in the guest player. It opens in your browser and keeps the live score, chat and stream together.</Muted>
+        <Btn label="Open live player" color={C.accent} testID="match-live-watch" onPress={openPlayer} />
+      </Card>
+    </ScrollView>
+  );
+}
+
+function CoStreamScreen({ id, server, token, guestToken, user, onSignIn }: any) {
+  const { s, C } = useVisual();
+  const [session, setSession] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [draft, setDraft] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const room = session?.chat_room_id ?? `chat-${id}`;
+  const participants: string[] = session?.active_participants ?? [];
+  const canManage = Boolean(token && user && (user.role === 'super_admin' || user.player_id === session?.active_host));
+
+  useEffect(() => {
+    let alive = true;
+    let busy = false;
+    const load = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const authToken = token ?? guestToken;
+        const next = await request<any>(server, `/api/v1/costream/${encodeURIComponent(id)}`, { token: authToken });
+        const history = await request<any>(server, `/api/v1/chat/${encodeURIComponent(next.chat_room_id ?? `chat-${id}`)}`, { token: authToken });
+        if (alive) { setSession(next); setMessages(history.messages ?? []); setNotice(null); }
+      } catch (e: any) {
+        if (alive) setNotice(e?.message ?? 'Co-stream details are unavailable.');
+      } finally { busy = false; }
+    };
+    void load();
+    const timer = setInterval(() => { void load(); }, 1200);
+    return () => { alive = false; clearInterval(timer); };
+  }, [id, server, token, guestToken]);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    if (!token || !user) { setNotice('Guest access is read-only. Sign in to join the chat.'); return; }
+    setSending(true);
+    try {
+      const result = await request<any>(server, '/api/v1/chat', {
+        method: 'POST', token, body: { chat_room_id: room, text },
+      });
+      if (result.accepted && result.message) {
+        setMessages((current) => [...current.filter((message) => message.seq !== result.message.seq), result.message]);
+        setDraft('');
+        setNotice(null);
+      } else setNotice(result.reason === 'rate_limit_exceeded' ? 'You are sending messages too quickly.' : 'This message could not be sent.');
+    } catch (e: any) { setNotice(e?.message ?? 'Message could not be sent.'); }
+    finally { setSending(false); }
+  };
+
+  const control = async (action: string, participant_id: string) => {
+    if (!token) return;
+    try {
+      const next = await request<any>(server, `/api/v1/costream/${encodeURIComponent(id)}/control`, {
+        method: 'POST', token, body: { action, participant_id },
+      });
+      setSession(next);
+      setNotice(null);
+    } catch (e: any) { setNotice(e?.message ?? 'Co-stream control failed.'); }
+  };
+  const openPlayer = () => { void Linking.openURL(`${server.replace(/\/$/, '')}/web/costream/${encodeURIComponent(id)}`).catch(() => setNotice('Could not open the co-stream player.')); };
+
+  return (
+    <ScrollView contentContainerStyle={s.list} testID="screen-costream" accessibilityLabel="screen-costream" keyboardShouldPersistTaps="handled">
+      <PageHeading title="Co-stream" detail={id} action={<Btn small kind="outline" label="Watch" color={C.accent} onPress={openPlayer} />} />
+      <Card>
+        <View style={s.rowBetween}><Badge text={session?.status ?? 'connecting'} color={session?.status === 'active' ? C.ok : C.muted} /><Muted>{session?.layout ?? 'stream layout'}</Muted></View>
+        <H>Broadcasters · {session?.participant_count ?? participants.length}</H>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {participants.map((participant) => {
+            const host = participant === session?.active_host;
+            const muted = (session?.muted ?? []).includes(participant);
+            return (
+              <View key={participant} style={{ minWidth: 138, flexGrow: 1, padding: 12, borderWidth: 1, borderColor: C.border, borderRadius: 12, backgroundColor: C.soft }}>
+                <Text style={s.bigTeam} numberOfLines={1}>{participant}</Text>
+                <Muted>{host ? 'Active host' : muted ? 'Muted' : 'Live participant'}</Muted>
+                {canManage && !host && <View style={[s.row, { marginTop: 6 }]}>
+                  <Btn small kind="outline" label={muted ? 'Unmute' : 'Mute'} color={C.accent} onPress={() => void control(muted ? 'unmute' : 'mute', participant)} />
+                  <Btn small kind="outline" label="Spotlight" color={C.accent} onPress={() => void control('spotlight', participant)} />
+                  <Btn small kind="outline" label="Remove" color={C.bad} onPress={() => void control('kick', participant)} />
+                </View>}
+              </View>
+            );
+          })}
+          {!participants.length && <Muted>{notice ?? 'Waiting for the session details…'}</Muted>}
+        </View>
+      </Card>
+      <Card>
+        <H>Live chat</H>
+        <View testID="chat-message-list" accessibilityLabel="chat-message-list" style={{ minHeight: 72, maxHeight: 300, gap: 8 }}>
+          {messages.map((message: any) => (
+            <View key={`${message.seq}-${message.sender}`} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+              <Text style={{ color: C.accent, fontWeight: '700', minWidth: 34 }}>#{message.seq}</Text>
+              <Text style={[s.body, { flex: 1 }]}><Text style={{ fontWeight: '700' }}>{message.sender}: </Text>{message.text}</Text>
+            </View>
+          ))}
+          {!messages.length && <Muted>No messages yet.</Muted>}
+        </View>
+        {notice && <Text accessibilityLiveRegion="polite" style={{ color: C.warn }}>{notice}</Text>}
+        <View style={[s.row, { alignItems: 'stretch' }]}>
+          <TextInput
+            testID="costream-chat-input"
+            accessibilityLabel="costream-chat-input"
+            value={draft}
+            onChangeText={setDraft}
+            onSubmitEditing={() => void send()}
+            placeholder="Write a message"
+            placeholderTextColor={C.muted}
+            returnKeyType="send"
+            maxLength={500}
+            style={[s.input, { flex: 1, minHeight: 48 }]}
+          />
+          <Btn label="Send" color={C.accent} testID="costream-chat-send" disabled={sending || !draft.trim()} onPress={() => void send()} />
+        </View>
+        {!token && <Btn kind="outline" label="Sign in to chat" color={C.accent} testID="costream-sign-in" onPress={onSignIn} />}
+      </Card>
+    </ScrollView>
+  );
+}
+
+function QrRedirectScreen({ code, server, onResolved }: any) {
+  const { s } = useVisual();
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const endpoint = `${server.replace(/\/$/, '')}/q/${encodeURIComponent(code)}`;
+    fetch(endpoint, { redirect: 'manual' } as RequestInit & { redirect: 'manual' }).then((response) => {
+      const location = response.headers.get('location');
+      const base = server.replace(/\/$/, '');
+      const target = location ? (/^https?:\/\//i.test(location) ? location : `${base}/${location.replace(/^\//, '')}`)
+        : null;
+      const next = target ? parseAppDeepLink(target) : null;
+      if (!next || next.name === 'qr') throw new Error('This QR link does not point to a supported app screen.');
+      if (alive) onResolved(next);
+    }).catch((e: any) => { if (alive) setError(e?.message ?? 'Could not resolve this QR link.'); });
+    return () => { alive = false; };
+  }, [code, server, onResolved]);
+  return <View style={s.list}><PageHeading title="Opening QR link" detail={code} />{error ? <Empty text={error} /> : <Muted>Finding the right match or stream…</Muted>}</View>;
+}
+
+function GuestEntityScreen({ kind, id, server }: any) {
+  const { s, C } = useVisual();
+  const [profile, setProfile] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (kind !== 'player') return;
+    let alive = true;
+    request<any>(server, `/api/v1/athletes/${encodeURIComponent(id)}`)
+      .then((value) => { if (alive) setProfile(value); })
+      .catch((e: any) => { if (alive) setError(e?.message ?? 'Profile details are unavailable.'); });
+    return () => { alive = false; };
+  }, [kind, id, server]);
+  const path = kind === 'player' ? `/web/players/${encodeURIComponent(id)}` : `/web/clubs/${encodeURIComponent(id)}`;
+  return (
+    <ScrollView contentContainerStyle={s.list}>
+      <PageHeading title={kind === 'player' ? profile?.name ?? 'Player profile' : 'Club profile'} detail={id} />
+      <Card>
+        {profile ? <>
+          <H>{profile.name ?? id}</H>
+          <Muted>{[profile.club, profile.position, profile.followers != null ? `${profile.followers} followers` : null].filter(Boolean).join(' · ')}</Muted>
+        </> : <Muted>{error ?? 'Guest view · profile details are read-only.'}</Muted>}
+        <Btn label="Open full profile" color={C.accent} onPress={() => { void Linking.openURL(`${server.replace(/\/$/, '')}${path}`); }} />
+      </Card>
+    </ScrollView>
   );
 }
 

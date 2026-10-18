@@ -76,6 +76,7 @@ def test_cross_surface_costream_chat_within_3s(mobile):
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
+    from appium.webdriver.common.appiumby import AppiumBy
 
     opts = webdriver.ChromeOptions()
     opts.add_argument("--headless=new")
@@ -85,6 +86,14 @@ def test_cross_surface_costream_chat_within_3s(mobile):
         WebDriverWait(web, 5).until(lambda d: d.find_element(By.CSS_SELECTOR, '[data-testid="chat-message-list"]'))
 
         fire("nascon://stream/cs-session-101")
+        sign_in = mobile.find_elements(AppiumBy.XPATH, "//*[@resource-id='costream-sign-in' or @resource-id='com.nasconapp:id/costream-sign-in' or @content-desc='costream-sign-in']")
+        if sign_in:
+            sign_in[0].click()
+            find_any(mobile, "login-email", 3).send_keys("player@nascon.test")
+            find_any(mobile, "login-password", 3).send_keys("Nascon@26")
+            find_any(mobile, "Sign in →", 3).click()
+            find_any(mobile, "screen-costream", 5)
+
         marker = f"cross-surface {uuid.uuid4().hex[:6]}"
         find_any(mobile, "costream-chat-input", 3).send_keys(marker)
         find_any(mobile, "costream-chat-send", 2).click()

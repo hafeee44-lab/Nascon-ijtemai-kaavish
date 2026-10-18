@@ -2,6 +2,11 @@ export * from 'react-native-web';
 // Browser adapters for the same app. Android continues using its native bridges.
 // react-native-svg includes a lazy Android sound import in its web bundle.
 // Native modules are unavailable in a browser; never substitute native behavior.
+export const Linking = {
+ getInitialURL:async()=>window.location.href,
+ addEventListener:()=>({remove(){}}),
+ openURL:async(url:string)=>{window.open(url,'_blank','noopener,noreferrer');},
+};
 export const TurboModuleRegistry = {
  get: (_name: string) => null,
  getEnforcing(name: string): never { throw new Error(`Native module ${name} is unavailable in the browser.`); }
