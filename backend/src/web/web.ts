@@ -29,7 +29,9 @@ const crestColor = (id: string) => { let h = 0; for (const ch of id) h = (h * 31
 const crest = (id: string, name: string, size = 56) =>
   `<span class="crest" style="--c:${crestColor(id)};--s:${size}px" role="img" aria-label="${esc(name)} crest">${esc(initials(name))}</span>`;
 const pkr = (minor: number) => `PKR ${(minor / 100).toFixed(2)}`;
-const mediaHost = () => process.env.MEDIA_PUBLIC_HOST ?? 'localhost';
+// HLS is served by MediaMTX on the same machine as the API, so a phone that reached this page over the
+// hotspot (http://<laptop-ip>:8080) must fetch video from that same host, not from its own localhost.
+const mediaHost = (req: Request) => process.env.MEDIA_PUBLIC_HOST ?? (req.hostname || 'localhost');
 
 function shell(title: string, body: string, boot: Record<string, unknown>) {
   return `<!doctype html>
@@ -131,7 +133,7 @@ export function serveWeb(app: Express, nest: INestApplication) {
     const product = mm.pinned_product_id ? await db().get('product', mm.pinned_product_id) : await db().get('product', 'prod-jersey-001');
     const keyRow = await db().query(`SELECT data FROM docs WHERE kind='stream_key' AND data->>'status'='active' ORDER BY data->>'created_at' DESC LIMIT 1`);
     const key = keyRow.rows[0]?.data?.stream_key as string | undefined;
-    const hls = key ? `http://${mediaHost()}:8888/live/${key}/index.m3u8` : '';
+    const hls = key ? `http://${mediaHost(req)}:8888/live/${key}/index.m3u8` : '';
     const label = { upcoming: 'Kick-off soon', in_progress: 'Live', completed: 'Full time', postponed: 'Postponed', cancelled: 'Cancelled', abandoned: 'Abandoned' }[p.status] ?? p.status;
     const room = `chat-${id}`;
     const notice = req.path.endsWith('/notice')

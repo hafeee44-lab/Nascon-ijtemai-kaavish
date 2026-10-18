@@ -50,6 +50,7 @@ services:
       DATABASE_URL: postgres://nascon:nascon@postgres:5432/nascon
       REDIS_URL: redis://redis:6379
       MEDIAMTX_API_URL: http://mediamtx:9997
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       RECORDINGS_DIR: /recordings
       JWT_SECRET: ${JWT_SECRET:-nascon-dev-jwt-secret-change-me}
       PORT: "8080"

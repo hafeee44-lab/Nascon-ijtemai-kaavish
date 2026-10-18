@@ -65,6 +65,7 @@ Apple Silicon: set `SELENIUM_HUB_IMAGE=selenium/hub:4.24.0`, `SELENIUM_CHROME_IM
 
 ## Try it
 
+- **Phones on the hotspot:** the player fetches video from the same host the phone used for the page. To make printed/exported QR codes point at the laptop, set `PUBLIC_BASE_URL=http://<laptop-LAN-IP>:8080` in `.env` and restart `api` (default `http://localhost:8080`, used over USB with `adb reverse tcp:8080 tcp:8080` and `tcp:8888`). Chrome may show a one-time "site doesn't support a secure connection" notice for plain HTTP on a LAN IP; tap **Continue to site**.
 - **QR → guest player:** open `http://localhost:8080/q/m1-live` (redirects to `/web/matches/match-m1/live`). No login; add the jersey to the cart; try to chat (you'll be asked to sign in — `player@nascon.test` / `Nascon@26` — and the cart moves to your account).
 - **QR exports:** `/audit/v1/qr/match-m1/export.svg|png|pdf`.
 - **Go live:** `POST /audit/v1/stream/key {"action":"generate","player_id":"player-alpha-1"}` → publish with OBS or
