@@ -39,14 +39,14 @@ function shell(title: string, body: string, boot: Record<string, unknown>) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0A0F1E">
+<meta name="theme-color" content="#151515">
 <title>${esc(title)} · NaSCon Live</title>
 <link rel="stylesheet" href="/web/assets/player.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top" role="banner">
-  <a class="brand" href="#main" aria-label="NaSCon Live home"><span class="logo" aria-hidden="true">N</span><span>NaSCon <b>Live</b></span></a>
+  <a class="brand" href="#main" aria-label="NaSCon Live home"><span class="logo" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 28 28"><path d="M6 7h16v5H11v10H6z M15 15h5v7h-5z" fill="#fff"/></svg></span><span>CLUB<b>|</b>HOUSE</span></a>
   <div class="top-right">
     <span class="pill" id="who" aria-live="polite">Watching as guest</span>
     <span class="cart-pill" aria-label="Items in your cart"><span aria-hidden="true">Cart</span> <span data-testid="guest-cart-count" id="cart-count">0</span></span>
