@@ -10,6 +10,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/src/web/player.css /app/src/web/player.js ./dist/web/
 COPY package.json ./
 EXPOSE 8080
 CMD ["node", "dist/main.js"]

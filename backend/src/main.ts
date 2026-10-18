@@ -25,7 +25,7 @@ async function bootstrap() {
   app.use((_req: express.Request, _res: express.Response, next: express.NextFunction) => { live.httpRequests++; next(); });
   // FR-4.3: guest tokens are rejected on every write before any controller runs.
   app.use(guestGuard);
-  serveWeb(app.getHttpAdapter().getInstance());
+  serveWeb(app.getHttpAdapter().getInstance(), app);
   app.useGlobalFilters(new ErrorFilter());
   app.enableCors();
 
