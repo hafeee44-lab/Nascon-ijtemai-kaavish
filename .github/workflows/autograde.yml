@@ -47,6 +47,9 @@ jobs:
       - name: Install test dependencies
         run: pip install -r tests/requirements.txt
 
+      - name: Backend unit tests + per-area coverage (COVERAGE.json / COVERAGE_DAY2.json)
+        run: ./run_tests.sh
+
       - name: Contract probes (Phase I regression + Phase II)
         run: |
           python3 tests/smoke_test.py
