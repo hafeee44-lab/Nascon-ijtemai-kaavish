@@ -167,10 +167,16 @@
     es.addEventListener('score', function (e) { setScore(JSON.parse(e.data)); });
     es.addEventListener('chat.message', function (e) { renderMsg(JSON.parse(e.data)); });
     es.addEventListener('match.product_pinned', function () { toast('A new product was pinned to this match.'); });
+    es.addEventListener('stream.key_revoked', function (e) {
+      var d = JSON.parse(e.data), v = $('video');
+      if (v && d.stream_key && (v.getAttribute('data-src') || '').indexOf(d.stream_key) >= 0) endBroadcast();
+    });
     es.onerror = function () { /* EventSource reconnects automatically */ };
+    window.addEventListener('pagehide', function () { es.close(); });
   }
 
   // ---- media ----
+  var endBroadcast = function () {};
   function setupVideo() {
     var v = $('video');
     if (!v) return;
@@ -180,14 +186,28 @@
     else if (src) v.src = src; // HLS-capable browsers play it; others keep the overlay message
     // A playlist requested while the media server is still warming up fails once and the element never
     // retries on its own, so reload the source with backoff (2 s, 4 s … capped at 10 s) until it plays.
-    var retries = 0, wanted = false;
+    // Each retry probes the playlist with fetch() first: MediaMTX answers a revoked key with
+    // 401 + WWW-Authenticate, which would make the browser pop a username/password dialog if the
+    // <video> element requested it directly.
+    var retries = 0, wanted = false, ended = false;
+    endBroadcast = function () {
+      ended = true;
+      v.removeAttribute('src'); v.load();
+      if (note) { note.hidden = false; note.textContent = 'The broadcast has ended.'; }
+      var pb = $('ctl-play'); if (pb) { wanted = false; pb.textContent = 'Play'; pb.setAttribute('aria-label', 'Play'); }
+    };
     v.addEventListener('playing', function () { retries = 0; if (note) note.hidden = true; });
     v.addEventListener('error', function () {
-      if (!src) return;
+      if (!src || ended || !v.getAttribute('src')) return;
       if (note) { note.hidden = false; note.textContent = 'Connecting to stream…'; }
-      setTimeout(function () {
-        v.src = src; v.load();
-        if (wanted) v.play().catch(function () {});
+      setTimeout(function retry() {
+        if (ended) return;
+        fetch(src, { cache: 'no-store', credentials: 'omit' }).then(function (r) {
+          if (r.status === 401 || r.status === 403) return endBroadcast();
+          if (!r.ok) return setTimeout(retry, Math.min(10000, 2000 * Math.pow(2, retries++)));
+          v.src = src; v.load();
+          if (wanted) v.play().catch(function () {});
+        }, function () { setTimeout(retry, Math.min(10000, 2000 * Math.pow(2, retries++))); });
       }, Math.min(10000, 2000 * Math.pow(2, retries++)));
     });
     var play = $('ctl-play'), mute = $('ctl-mute'), full = $('ctl-full');
