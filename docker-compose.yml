@@ -49,6 +49,8 @@ services:
       PORT: "8080"
     volumes:
       - recordings:/recordings:ro
+    sysctls:
+      net.core.somaxconn: 4096
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

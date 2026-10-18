@@ -34,7 +34,12 @@ async function bootstrap() {
   const seeded = await db.query(`SELECT 1 FROM meta WHERE key='seeded'`);
   if (!seeded.rows.length) await resetAll(db, await lastSeed(db), { 'var-jersey-001-M': 1, 'var-jersey-001-L': 5 });
 
-  await app.listen(Number(process.env.PORT ?? 8080), '0.0.0.0');
+  // NFR-2: 550 clients connect at once under k6 — a deep accept backlog avoids resets during ramp-up.
+  await app.init();
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  await new Promise<void>((resolve) => server.listen({ port: Number(process.env.PORT ?? 8080), host: '0.0.0.0', backlog: 4096 }, resolve));
 
   // NFR-1: ws://host:8080/ws/matches/{match_id} pushes the score on every appended event.
   const wss = new WebSocketServer({ noServer: true });
