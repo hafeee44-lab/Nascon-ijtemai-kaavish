@@ -32,7 +32,9 @@ python3 tests/smoke_test.py          # end-to-end contract checks against the ru
 
 - Install: `adb install -r mobile/release/app-release.apk` (Android 10+, arm64).
 - The phone and laptop must be on the same network (team hotspot). On the login screen or in **Settings**, set the server address to `http://<laptop-LAN-IP>:8080` (emulator: `http://10.0.2.2:8080`).
-- Offline demo: open Fixtures, Standings and Club while online. Switch to airplane mode, add a score (Organizer, on a live match) or move a player (Manager, Club tab), force-close, reopen, then go back online. The queue syncs automatically and per-action results appear on the **Sync** tab.
+- Navigation is role-aware: Organizer/Admin get **Match control** (live fixtures → scoring console), Manager gets **Squad**, Player gets **My Club**, Viewer gets **Clubs**; everyone has Home, Calendar, Table and Store.
+- Offline demo: open Home, Table and Squad while online. Switch to airplane mode, add a score (Organizer, Match control → scoring console) or move a player (Manager, Squad), force-close, reopen, then go back online. The queue syncs automatically and per-action results appear under the bell icon (**Activity and sync**).
+- UI preview in a browser (no phone needed): `npm --prefix mobile/web install && npm --prefix mobile/web start` → http://127.0.0.1:4186 (proxies the API on :8080).
 - Rebuild: `cd mobile/android && ./gradlew assembleDebug --offline` (the JS bundle is embedded, so no Metro is needed), then copy `app/build/outputs/apk/debug/app-debug.apk` to `mobile/release/app-release.apk`.
 
 ## Architecture

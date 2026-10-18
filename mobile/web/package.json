@@ -1,0 +1,1 @@
+{"name":"nascon-local-web","private":true,"type":"module","scripts":{"start":"node dev.mjs"},"dependencies":{"esbuild":"^0.25.0","react":"19.3.0","react-dom":"19.3.0","react-native-web":"^0.21.0"}}
