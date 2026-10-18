@@ -288,3 +288,7 @@ input::placeholder { color: var(--muted); }
   .jersey .sleeve { top: 14px; width: 30px; height: 26px; }
 }
 
+
+/* Video overlay alignment: status note centred in the frame, pinned merch level with the score badge. */
+.ov-merch { position: absolute; top: 14px; right: 14px; }
+.offline-note { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); white-space: nowrap; max-width: calc(100% - 28px); overflow: hidden; text-overflow: ellipsis; }
