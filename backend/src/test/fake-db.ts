@@ -4,6 +4,9 @@ export class FakeDb {
   docs = new Map<string, any>();
   inventory = new Map<string, { stock: number; reserved: number }>();
   audit: { seq: number; audit_id: string; player_id: string; data: any }[] = [];
+  dlq: any[] = [];
+  chat: any[] = [];
+  telemetry = new Map<string, number>();
   pool = this;
 
   private k = (kind: string, id: string) => `${kind}\u0000${id}`;
@@ -22,7 +25,7 @@ export class FakeDb {
     return [...this.docs.entries()].filter(([key]) => key.startsWith(kind + '\u0000')).map(([, v]) => structuredClone(v));
   }
   async tx<T>(fn: (c: any) => Promise<T>): Promise<T> {
-    const snapshot = { docs: new Map(this.docs), inventory: new Map([...this.inventory].map(([k, v]) => [k, { ...v }])), audit: [...this.audit] };
+    const snapshot = { docs: new Map([...this.docs].map(([k, v]) => [k, structuredClone(v)])), inventory: new Map([...this.inventory].map(([k, v]) => [k, { ...v }])), audit: [...this.audit], dlq: [...this.dlq] };
     try {
       return await fn(this);
     } catch (e) {
@@ -40,6 +43,44 @@ export class FakeDb {
       this.docs.set(this.k(m[1], p[0]), JSON.parse(p[1]));
       return ok([{ id: p[0] }]);
     }
+    if ((m = q.match(/^INSERT INTO docs\(kind,id,data\) VALUES\('(\w+)',\$1,'(\{\})'\) ON CONFLICT DO NOTHING/))) {
+      if (!this.docs.has(this.k(m[1], p[0]))) this.docs.set(this.k(m[1], p[0]), {});
+      return ok([]);
+    }
+    if (q.startsWith("SELECT 1 FROM docs WHERE kind='user'"))
+      return ok([...this.docs].filter(([k, v]) => k.startsWith('user\u0000') && (v.user_id === p[0] || v.player_id === p[0])).map(() => ({ '?column?': 1 })));
+    if (q === 'SELECT stock FROM inventory WHERE variant_id=$1') {
+      const inv = this.inventory.get(p[0]);
+      return ok(inv ? [{ stock: inv.stock }] : []);
+    }
+    if (q.startsWith("SELECT count(*)::int AS n FROM docs WHERE kind='stream_key'"))
+      return ok([{ n: [...this.docs].filter(([k, v]) => k.startsWith('stream_key\u0000') && v.status === 'active').length }]);
+    if (q.startsWith('INSERT INTO dlq')) {
+      this.dlq.push(JSON.parse(p[1]));
+      return ok([]);
+    }
+    if (q === 'SELECT data FROM dlq ORDER BY seq') return ok(this.dlq.map((data) => ({ data })));
+    if (q === 'SELECT count(*)::int AS n FROM dlq') return ok([{ n: this.dlq.length }]);
+    if (q.startsWith('INSERT INTO chat_messages')) {
+      const row = { seq: this.chat.length + 1, room: p[0], sender: p[1], text: p[2], flagged: p[3], reason: p[4], created_at: new Date().toISOString() };
+      this.chat.push(row);
+      return ok([{ seq: row.seq, created_at: row.created_at }]);
+    }
+    if (q.startsWith('SELECT seq, sender, text, flagged, reason, created_at FROM chat_messages'))
+      return ok(this.chat.filter((c) => c.room === p[0]).slice(-50).reverse());
+    if (q.startsWith("UPDATE docs SET data = jsonb_set(data, '{scan_count}'")) {
+      const d = this.docs.get(this.k('qr', p[0]));
+      if (!d) return ok([]);
+      d.scan_count = (d.scan_count ?? 0) + 1;
+      return ok([{ n: d.scan_count }]);
+    }
+    if (q.startsWith('INSERT INTO qr_telemetry')) {
+      const key = p.join('|');
+      this.telemetry.set(key, (this.telemetry.get(key) ?? 0) + 1);
+      return ok([]);
+    }
+    if (q.startsWith("SELECT COALESCE(sum((data->>'scan_count')::int),0)::int AS n FROM docs WHERE kind='qr'"))
+      return ok([{ n: [...this.docs].filter(([k]) => k.startsWith('qr\u0000')).reduce((s, [, v]) => s + (v.scan_count ?? 0), 0) }]);
     if ((m = q.match(/^DELETE FROM docs WHERE kind='(\w+)' AND id=\$1/))) {
       this.docs.delete(this.k(m[1], p[0]));
       return ok([]);

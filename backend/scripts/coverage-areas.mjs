@@ -11,9 +11,19 @@ const AREAS = {
   rbac: ['src/rbac/policy.ts', 'src/rbac/rate-limiter.ts', 'src/rbac/auth.service.ts'],
 };
 
+// Day 2 modules (COVERAGE_DAY2.json).
+const AREAS_DAY2 = {
+  streaming: ['src/streaming/stream-keys.ts', 'src/streaming/players.ts', 'src/streaming/media-bridge.ts'],
+  costream: ['src/costream/costream.ts'],
+  qr_guest: ['src/qr_guest/qr.ts', 'src/qr_guest/guest.ts', 'src/qr_guest/guest-guard.ts'],
+  moderation_dlq: ['src/moderation_dlq/moderation.ts', 'src/moderation_dlq/moderation.service.ts'],
+  observability: ['src/observability/metrics.ts', 'src/queue/redis-ping.ts'],
+};
+
 const summary = JSON.parse(readFileSync('coverage/coverage-summary.json', 'utf8'));
+const measure = (areas) => {
 const out = {};
-for (const [area, files] of Object.entries(AREAS)) {
+for (const [area, files] of Object.entries(areas)) {
   let covered = 0;
   let total = 0;
   for (const f of files) {
@@ -24,4 +34,7 @@ for (const [area, files] of Object.entries(AREAS)) {
   }
   out[area] = total ? Math.round((1000 * covered) / total) / 10 : 0;
 }
-console.log(JSON.stringify(out));
+return out;
+};
+console.log('Day 1:', JSON.stringify(measure(AREAS)));
+console.log('Day 2:', JSON.stringify(measure(AREAS_DAY2)));
