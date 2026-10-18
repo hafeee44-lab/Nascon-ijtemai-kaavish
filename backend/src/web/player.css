@@ -99,3 +99,21 @@ input::placeholder { color: var(--muted); }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #F1F5F9; color: #0A0F1E; font-weight: 800;
   border-radius: 16px; padding: 12px 18px; z-index: 60; max-width: calc(100vw - 32px); }
 [hidden] { display: none !important; }
+
+/* Small phones (≤ 520 px): one-line header, compact pills. */
+@media (max-width: 520px) {
+  .top { padding: 8px 12px; gap: 8px; }
+  .brand { font-size: 16px; gap: 8px; white-space: nowrap; }
+  .logo { width: 32px; height: 32px; }
+  .pill { font-size: 12px; padding: 6px 10px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 28px; }
+  .cart-pill { padding: 6px 10px; }
+  main { padding: 12px; }
+  .merch { grid-template-columns: 96px 1fr; gap: 12px; }
+  .jersey { width: 96px; height: 96px; transform-origin: top left; }
+  .jersey .body { left: 18px; top: 12px; width: 60px; height: 78px; }
+  .jersey .sleeve { top: 14px; width: 30px; height: 26px; }
+}
+
+/* Keep the status note clear of the media controls on every screen size. */
+.overlay { padding-bottom: 72px; }
+.ctl { background: rgba(10, 15, 30, .92); border: 1px solid rgba(255, 255, 255, .18); }
