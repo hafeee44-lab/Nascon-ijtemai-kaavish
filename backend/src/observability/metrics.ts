@@ -16,3 +16,6 @@ export function renderMetrics(gauges: Gauge[]): string {
 
 /** Live connection gauge shared by SSE and WebSocket endpoints. */
 export const live = { connections: 0, httpRequests: 0 };
+
+/** Aggregate ingest bitrate, sampled from the media server by MediaBridge. */
+export const mediaBitrate = { kbps: 0 };

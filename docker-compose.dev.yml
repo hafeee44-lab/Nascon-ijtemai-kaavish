@@ -1,6 +1,13 @@
-# Local development only: expose the databases so the API can run on the host (npm run start:dev).
+# Local development only: run the API on the host (node dist/main.js) against these containers.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis mediamtx selenium-hub node-chrome-1 node-chrome-2 node-firefox
 services:
   postgres:
     ports: ["5432:5432"]
   redis:
     ports: ["6379:6379"]
+  mediamtx:
+    ports: ["9997:9997"]
+    environment:
+      MTX_AUTHHTTPADDRESS: http://host.docker.internal:8080/internal/media/auth
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -7,6 +7,7 @@ import { ModerationService } from './moderation_dlq/moderation.service.js';
 import { GuestService } from './qr_guest/guest.js';
 import { QrService } from './qr_guest/qr.js';
 import { StreamKeysService } from './streaming/stream-keys.js';
+import { MediaBridge } from './streaming/media-bridge.js';
 import { RealtimeController } from './realtime/realtime.controller.js';
 import { MobileController } from './mobile/mobile.controller.js';
 import { FixturesController } from './fixtures/fixtures.controller.js';
@@ -30,6 +31,6 @@ import { OfflineSyncService } from './sync/offline-sync.service.js';
     CoreController, SportsController, EventsController, LeaguesController, StoreController, RbacController,
     RosterController, OfflineSyncController, FixturesController, MobileController, RealtimeController, Day2Controller,
   ],
-  providers: [StreamKeysService, CostreamService, QrService, GuestService, ModerationService, LeaguesController, Db, EventsService, StoreService, DomainEvents, AuthService, RosterService, OfflineSyncService],
+  providers: [MediaBridge, StreamKeysService, CostreamService, QrService, GuestService, ModerationService, LeaguesController, Db, EventsService, StoreService, DomainEvents, AuthService, RosterService, OfflineSyncService],
 })
 export class AppModule {}

@@ -1,0 +1,44 @@
+# MediaMTX 1.9 — self-hosted media server (FR-3.2): RTMP/WebRTC ingest, HLS/WebRTC playback.
+# Every publish/read is authorised by the API, so revoked or unknown stream keys are refused.
+logLevel: info
+
+api: yes
+apiAddress: :9997
+
+rtmp: yes
+rtmpAddress: :1935
+
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigin: '*'
+hlsAlwaysRemux: yes
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+webrtcLocalUDPAddress: :8189
+
+rtsp: yes
+rtspAddress: :8554
+srt: no
+
+authMethod: http
+# Overridden in docker-compose via MTX_AUTHHTTPADDRESS.
+authHTTPAddress: http://api:8080/internal/media/auth
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+pathDefaults:
+  # Automated recording for VOD (indexed by the API when the stream ends).
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordSegmentDuration: 1h
+
+paths:
+  all_others:

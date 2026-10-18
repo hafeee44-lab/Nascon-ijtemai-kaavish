@@ -5,7 +5,7 @@ import { isInt, isObj, isStr, nowIso } from '../common/validate.js';
 import { CostreamService } from '../costream/costream.js';
 import { Db } from '../db/db.service.js';
 import { ModerationService } from '../moderation_dlq/moderation.service.js';
-import { live, renderMetrics } from '../observability/metrics.js';
+import { live, mediaBitrate, renderMetrics } from '../observability/metrics.js';
 import { guestTokenOf } from '../qr_guest/guest-guard.js';
 import { GuestService } from '../qr_guest/guest.js';
 import { QrService } from '../qr_guest/qr.js';
@@ -251,6 +251,3 @@ export class Day2Controller {
     return { athlete_id: id, following: !!n.rows[0].mine, follower_count: n.rows[0].n };
   }
 }
-
-/** Updated by the media poller (MediaMTX API); exported for /metrics. */
-export const mediaBitrate = { kbps: 0 };

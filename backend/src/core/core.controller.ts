@@ -4,6 +4,8 @@ import { validationError } from '../common/api-error.js';
 import { Db } from '../db/db.service.js';
 import { BASE_SPORTS, resetAll } from '../db/seed.js';
 import { DomainEvents } from '../queue/domain-events.js';
+import { mediaServerReady } from '../streaming/media-bridge.js';
+import { redisReady } from '../queue/redis-ping.js';
 
 const DEFAULT_STOCK = { 'var-jersey-001-M': 1, 'var-jersey-001-L': 5 };
 
@@ -11,12 +13,12 @@ const DEFAULT_STOCK = { 'var-jersey-001-M': 1, 'var-jersey-001-L': 5 };
 export class CoreController {
   constructor(private readonly db: Db, private readonly events: DomainEvents) {}
 
-  // Spec 5.4: 200 only when the DB is reachable and baseline data is seeded.
+  // Day 1 §5.4 + Day 2 §5.1: 200 only when DB, Redis and the media server are reachable and the seed exists.
   @Get('health')
   async health(@Res() res: Response) {
     try {
-      const r = await this.db.query(`SELECT value FROM meta WHERE key='seeded'`);
-      if (r.rows.length) return res.status(200).json({ status: 'ok' });
+      const [r, redis, media] = await Promise.all([this.db.query(`SELECT value FROM meta WHERE key='seeded'`), redisReady(), mediaServerReady()]);
+      if (r.rows.length && redis && media) return res.status(200).json({ status: 'ok' });
     } catch {
       /* not ready */
     }
