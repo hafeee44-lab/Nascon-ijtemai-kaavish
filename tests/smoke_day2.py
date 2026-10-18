@@ -11,7 +11,7 @@ import sys
 import urllib.request
 
 BASE = os.environ.get("BASE_URL", "http://localhost:8080")
-SALT2 = os.environ.get("DAY2_SALT", "T01D27ad7ffff12e")
+SALT2 = os.environ["DAY2_SALT"]  # never commit the salt; export it from your .env
 FAILS = []
 
 

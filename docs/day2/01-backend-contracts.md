@@ -4,7 +4,7 @@ New NestJS module folder per area so coverage maps cleanly to `COVERAGE_DAY2.jso
 `src/streaming`, `src/costream`, `src/qr_guest`, `src/moderation_dlq`, `src/observability`. Pure logic in plain `.ts` files with vitest specs; controllers stay thin.
 
 ## 1.0 Shared
-- `signDay2(entityId, payload)` in `common/canonical.ts` using `DAY2_SALT` env. Unit-test against Appendix A vector 1 (salt `T01D27ad7ffff12e`) by computing with Python reference first.
+- `signDay2(entityId, payload)` in `common/canonical.ts` using `DAY2_SALT` env. Unit-test against Appendix A vector 1 by computing with Python reference first.
 - **Guest guard** (`GuestGuard` / middleware): any request whose `Authorization: Bearer guest_*` hits a write route → **403 `GUEST_WRITE_FORBIDDEN`** with `details.guest_token`. Must cover at least `POST /api/v1/chat`, `POST /audit/v1/checkout`, `POST /audit/v1/events` (graded), plus follow, roster, cart checkout.
 - New `POST /api/v1/chat` (member chat post) so the guard has a real write target.
 
