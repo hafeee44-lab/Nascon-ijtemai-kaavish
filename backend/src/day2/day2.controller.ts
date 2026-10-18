@@ -66,7 +66,11 @@ export class Day2Controller {
   // ---------- §5.6 QR ----------
   @Get('audit/v1/qr/:entityId/export.:fmt')
   async qrExport(@Param('entityId') id: string, @Param('fmt') fmt: string, @Res() res: Response) {
-    if (fmt === 'svg') return res.status(200).type('image/svg+xml').send(await this.qr.svg(id));
+    if (fmt === 'svg') {
+      const svg = await this.qr.svg(id);
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+      return res.end(svg);
+    }
     if (fmt === 'png') return res.status(200).type('image/png').send(await this.qr.png(id));
     if (fmt === 'pdf') return res.status(200).type('application/pdf').send(await this.qr.pdf(id));
     throw validationError(['fmt'], 'Export format must be svg, png or pdf.');
@@ -183,7 +187,17 @@ export class Day2Controller {
     this.sse(req, res, (e) => e.type === 'chat.message' && e.data.chat_room_id === room);
   }
 
-  async scoreSnapshot(matchId: string) {
+  // One snapshot per event, shared by every SSE/WebSocket subscriber of that match (NFR-1 fan-out).
+  private pending = new Map<string, Promise<any>>();
+  scoreSnapshot(matchId: string): Promise<any> {
+    const hit = this.pending.get(matchId);
+    if (hit) return hit;
+    const p = this.computeSnapshot(matchId).finally(() => setTimeout(() => this.pending.delete(matchId), 25));
+    this.pending.set(matchId, p);
+    return p;
+  }
+
+  private async computeSnapshot(matchId: string) {
     const m = await this.events.loadMatch(this.db.pool, matchId);
     if (!m) return null;
     const p = project(m.sport, m.match, m.events);

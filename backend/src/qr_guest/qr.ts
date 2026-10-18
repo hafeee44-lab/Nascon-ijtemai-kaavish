@@ -109,7 +109,9 @@ export class QrService {
 
   async svg(entityId: string) {
     const r = await this.resolve(entityId, { inspect: true });
-    return QRCode.toString(r.short_url, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' });
+    const svg = await QRCode.toString(r.short_url, { type: 'svg', margin: 2, errorCorrectionLevel: 'M' });
+    // Human/machine-readable copy of the encoded short URL alongside the QR modules.
+    return svg.replace(/^<svg([^>]*)>/, (open) => `${open}<title>${r.short_url}</title>`);
   }
 
   async png(entityId: string): Promise<Buffer> {

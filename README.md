@@ -38,3 +38,48 @@ python3 tests/smoke_test.py          # end-to-end contract checks against the ru
 ## Architecture
 
 See `ADR.md` (decisions) and `TRACEABILITY.md` (requirements → code → tests).
+
+---
+
+# Part II (Day 2) — Live streaming, dynamic QR, guest web player, grid QA
+
+## Run everything
+
+```bash
+# Salts come only from the environment (never commit them). A local .env is git-ignored:
+#   DAY1_SALT=...   DAY2_SALT=...
+DAY1_SALT=<day1-salt> DAY2_SALT=<day2-salt> docker compose up -d --build
+docker compose ps        # every service reports (healthy)
+curl http://localhost:8080/health          # {"status":"ok"} once DB, Redis and the media server are ready
+curl http://localhost:4444/status          # Selenium Grid: ready, 3 nodes
+```
+
+| Service | Port(s) | Notes |
+|---|---|---|
+| API + Guest Web Player | 8080 | `/audit/v1/*`, `/api/v1/*`, `/web/*`, `/q/{code}`, `/metrics`, `ws://…/ws/matches/{id}`, `ws://…/ws/costream/{id}?player_id=` |
+| MediaMTX | 1935 RTMP · 8888 HLS · 8889 WebRTC (WHIP/WHEP) · 8189/udp | Every publish/read is authorised by the API (`/internal/media/auth`); revoked keys are cut within ~1 s |
+| Selenium Grid 4 | 4444 (hub) + 2× Chrome + 1× Firefox | `shm_size: 1gb`, VNC off |
+| Postgres / Redis | internal | Redis Streams `domain-events` is the internal event queue |
+
+Apple Silicon: set `SELENIUM_HUB_IMAGE=selenium/hub:4.24.0`, `SELENIUM_CHROME_IMAGE=selenium/node-chromium:4.24.0`, `SELENIUM_FIREFOX_IMAGE=selenium/node-firefox:4.24.0` in `.env` (the defaults are the official 4.25.0 images the grader pulls). MinIO is optional: `docker compose --profile objectstore up -d` (see ADR-9).
+
+## Try it
+
+- **QR → guest player:** open `http://localhost:8080/q/m1-live` (redirects to `/web/matches/match-m1/live`). No login; add the jersey to the cart; try to chat (you'll be asked to sign in — `player@nascon.test` / `Nascon@26` — and the cart moves to your account).
+- **QR exports:** `/audit/v1/qr/match-m1/export.svg|png|pdf`.
+- **Go live:** `POST /audit/v1/stream/key {"action":"generate","player_id":"player-alpha-1"}` → publish with OBS or
+  `ffmpeg -re -f lavfi -i testsrc -c:v libx264 -f flv rtmp://localhost:1935/live/<stream_key>` → watch `http://localhost:8888/live/<stream_key>/index.m3u8`.
+- **Co-stream:** `POST /audit/v1/costream/session` → host invites with `POST /api/v1/costream/{id}/invites`, guests join with the signed token, host controls via `/control`; if the host's WebSocket drops, hosting hands over in < 1.5 s.
+
+## Tests
+
+```bash
+./run_tests.sh                                    # unit tests; prints COVERAGE.json + COVERAGE_DAY2.json figures
+python3 tests/smoke_test.py && python3 tests/smoke_day2.py      # contract probes (export DAY1_SALT/DAY2_SALT)
+pip install -r tests/requirements.txt
+pytest -n 3 tests/selenium/ --junitxml=tests/reports/selenium-report.xml   # Grid 4, Chrome + Firefox in parallel
+pytest tests/appium/ --junitxml=tests/reports/appium-report.xml            # phone on USB, Appium on :4723
+k6 run --summary-export=tests/reports/k6-summary.json tests/k6_load.js     # 500 viewers + 50 chat posters, 15 s
+```
+
+CI (`.github/workflows/autograde.yml`) runs the same chain on every push to `main`. Requirements → code → tests: `TRACEABILITY.md`; design decisions: `ADR.md`; phase plans: `docs/day2/`.

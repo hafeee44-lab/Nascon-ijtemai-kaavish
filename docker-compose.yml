@@ -21,7 +21,8 @@ services:
 
   # Self-hosted media server: RTMP 1935, HLS 8888, WebRTC (WHIP/WHEP) 8889.
   mediamtx:
-    image: bluenviron/mediamtx:1.9.1
+    # The -ffmpeg variant ships a shell + wget, so the media server can report a real health status.
+    image: bluenviron/mediamtx:1.9.1-ffmpeg
     ports:
       - "1935:1935"
       - "8888:8888"
@@ -32,6 +33,11 @@ services:
     volumes:
       - ./infra/mediamtx.yml:/mediamtx.yml:ro
       - recordings:/recordings
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9997/v3/paths/list >/dev/null || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
     restart: unless-stopped
 
   api:
@@ -59,9 +65,9 @@ services:
       redis:
         condition: service_healthy
       mediamtx:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
       interval: 3s
       timeout: 3s
       retries: 40
