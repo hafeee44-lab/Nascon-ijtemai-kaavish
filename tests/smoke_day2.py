@@ -180,6 +180,73 @@ def test_metrics_privacy():
     check("privacy erase", s == 200 and b == {"user_id": "player-alpha-1", "status": "anonymized", "pii_retained": False, "tokens_wiped": True}, b)
 
 
+def login(email):
+    s, b, _ = call("POST", "/api/v1/auth/login", {"email": email, "password": "Nascon@26"})
+    return {"Authorization": f"Bearer {b['token']}"}
+
+
+def test_phase6_costream_controls():
+    reset()
+    host, manager = login("player@nascon.test"), login("manager@nascon.test")  # player@ is player-alpha-1
+    call("POST", "/audit/v1/costream/session", {"session_id": "cs-session-200", "host_player_id": "player-alpha-1",
+                                                "participants": ["player-alpha-1", "player-alpha-2"], "layout": "grid_4"})
+    s, inv, _ = call("POST", "/api/v1/costream/cs-session-200/invites", {"player_id": "player-beta-1"}, host)
+    check("host issues signed invite", s == 201 and "." in inv["invite_token"], inv)
+    s, b, _ = call("POST", "/api/v1/costream/cs-session-200/invites", {"player_id": "player-beta-1"}, manager)
+    check("non-host invite 403", s == 403, b)
+    s, b, _ = call("POST", "/api/v1/costream/cs-session-200/join", {"invite_token": inv["invite_token"]}, host)
+    check("join with invite", s == 200 and b["participant_count"] == 3 and "player-beta-1" in b["active_participants"], b)
+    s, b, _ = call("POST", "/api/v1/costream/cs-session-200/join", {"invite_token": inv["invite_token"][:-2] + "00"}, host)
+    check("forged invite 403", s == 403, b)
+    s, b, _ = call("POST", "/api/v1/costream/cs-session-200/control", {"action": "mute", "participant_id": "player-beta-1"}, host)
+    check("host mutes", s == 200 and b["muted"] == ["player-beta-1"], b)
+    s, b, _ = call("POST", "/api/v1/costream/cs-session-200/control", {"action": "kick", "participant_id": "player-beta-1"}, host)
+    check("host kicks", s == 200 and b["participant_count"] == 2 and b["signature"] == sign2("cs-session-200", {
+        "active_host": b["active_host"], "handoff_occurred": b["handoff_occurred"], "layout": b["layout"],
+        "participant_count": 2, "session_id": "cs-session-200", "status": b["status"]}), b)
+    # WebSocket presence: host disconnects abruptly -> next participant takes over within 1.5 s
+    import subprocess, time as t
+    js = ("const W=require('./backend/node_modules/ws');const w=new W('ws://localhost:8080/ws/costream/cs-session-200?player_id=player-alpha-1');"
+          "w.on('open',()=>setTimeout(()=>w.terminate(),300));w.on('close',()=>process.exit(0));setTimeout(()=>process.exit(1),5000)")
+    subprocess.run(["node", "-e", js], check=True, timeout=10)
+    t0 = t.monotonic()
+    while t.monotonic() - t0 < 3:
+        s, b, _ = call("GET", "/api/v1/costream/cs-session-200")
+        if b["active_host"] == "player-alpha-2":
+            break
+        t.sleep(0.1)
+    check("ws disconnect handoff < 1.5 s", b["active_host"] == "player-alpha-2" and b["handoff_occurred"] is True and t.monotonic() - t0 < 1.5, (b, t.monotonic() - t0))
+
+
+def test_phase6_moderation_price_profile():
+    reset()
+    org, manager, viewer = login("organizer@nascon.test"), login("manager@nascon.test"), login("viewer@nascon.test")
+    for _ in range(2):
+        s, b, _ = call("POST", "/api/v1/chat/chat-match-m1/moderation", {"action": "kick", "user_id": "troll"}, org)
+    check("moderator kick idempotent", s == 200 and b["kicked_users"] == ["troll"], b)
+    s, b, _ = call("POST", "/api/v1/chat/chat-match-m1/moderation", {"action": "kick", "user_id": "x"}, viewer)
+    check("viewer cannot moderate", s == 403, b)
+    s, b, _ = call("POST", "/api/v1/chat/chat-match-m1/moderation", {"action": "kick", "user_id": "x"}, {"Authorization": "Bearer guest_anon_tok_7721"})
+    check("guest cannot moderate", s == 403 and b["error"]["code"] == "GUEST_WRITE_FORBIDDEN", b)
+    s, b, _ = call("POST", "/api/v1/variants/var-jersey-001-L/price", {"price_minor": 400000}, manager)
+    check("manager reprices now", s == 201 and b["current_price_minor"] == 400000, b)
+    s, b, _ = call("POST", "/api/v1/variants/var-jersey-001-L/price", {"price_minor": 380000, "effective_at": "2099-01-01T00:00:00Z"}, manager)
+    check("future price scheduled", b["current_price_minor"] == 400000 and b["scheduled"][0]["price_minor"] == 380000, b)
+    s, b, _ = call("POST", "/api/v1/variants/var-jersey-001-L/price", {"price_minor": 1}, viewer)
+    check("viewer cannot reprice", s == 403, b)
+    s, b, _ = call("POST", "/audit/v1/checkout", {"order_id": "o-price", "customer_id": "c", "items": [{"variant_id": "var-jersey-001-L", "quantity": 1}],
+                                                  "discount_code": None, "payment": {"token": "tok_success"}})
+    check("checkout uses effective price", s == 201 and b["total_minor"] == 400000, b.get("total_minor"))
+    s, b, _ = call("POST", "/api/v1/inventory/var-jersey-001-L/restock", {"quantity": 3, "reason": "delivery"}, manager)
+    s2, a, _ = call("GET", "/api/v1/inventory/var-jersey-001-L/audit", None, manager)
+    check("restock + audit trail", s == 200 and b["stock"] == 7 and a["entries"][-1]["delta"] == 3, (b, a))
+    s, b, _ = call("GET", "/api/v1/orders", None, manager)
+    check("manager order list", s == 200 and any(o["order_id"] == "o-price" for o in b["orders"]), b)
+    s, b, _ = call("GET", "/api/v1/athletes/player-alpha-1")
+    check("athlete profile", s == 200 and b["club"]["club_id"] == "club-alpha-1" and b["career"]["played"] >= 1
+          and any(f["match_id"] == "match-m1" for f in b["upcoming_fixtures"]), b)
+
+
 if __name__ == "__main__":
     test_stream_keys()
     test_costream()
@@ -187,6 +254,8 @@ if __name__ == "__main__":
     test_guest()
     test_moderation()
     test_metrics_privacy()
+    test_phase6_costream_controls()
+    test_phase6_moderation_price_profile()
     reset()
     print(f"\n{len(FAILS)} failure(s)")
     sys.exit(1 if FAILS else 0)

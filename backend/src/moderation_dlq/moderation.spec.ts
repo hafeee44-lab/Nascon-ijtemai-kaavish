@@ -90,3 +90,17 @@ describe('notification retry + DLQ (FR-5.2)', () => {
     expect(h.messages.map((m: any) => m.text)).toEqual(['what a *** pass', 'a', 'b', 'c']);
   });
 });
+
+describe('moderator actions', () => {
+  it('kick/mute/unmute are role-gated, validated and deduplicated', async () => {
+    const db = new FakeDb();
+    const svc = new ModerationService(db as any, { bus: new EventEmitter(), emit: async () => undefined } as any);
+    const mod: any = { sub: 'm', role: 'league_organizer' };
+    await svc.act(mod, 'r', { action: 'kick', user_id: 'x' });
+    await svc.act(mod, 'r', { action: 'kick', user_id: 'x' });
+    expect((await svc.act(mod, 'r', { action: 'mute', user_id: 'x' })).muted_users).toEqual(['x']);
+    expect(await svc.act(mod, 'r', { action: 'unmute', user_id: 'x' })).toEqual({ chat_room_id: 'r', kicked_users: [], muted_users: [] });
+    expect(await code(svc.act({ sub: 'v', role: 'viewer' } as any, 'r', { action: 'kick', user_id: 'x' }))).toBe('FORBIDDEN');
+    expect(await code(svc.act(mod, 'r', { action: 'ban', user_id: 'x' }))).toBe('VALIDATION_ERROR');
+  });
+});

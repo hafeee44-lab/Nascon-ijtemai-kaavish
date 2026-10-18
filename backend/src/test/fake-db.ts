@@ -7,6 +7,9 @@ export class FakeDb {
   dlq: any[] = [];
   chat: any[] = [];
   telemetry = new Map<string, number>();
+  prices: { seq: number; variant_id: string; price_minor: number; effective_at: string; created_by: string }[] = [];
+  restocks: any[] = [];
+  followRows: { follower_id: string; athlete_id: string }[] = [];
   pool = this;
 
   private k = (kind: string, id: string) => `${kind}\u0000${id}`;
@@ -49,6 +52,19 @@ export class FakeDb {
     }
     if (q.startsWith("SELECT 1 FROM docs WHERE kind='user'"))
       return ok([...this.docs].filter(([k, v]) => k.startsWith('user\u0000') && (v.user_id === p[0] || v.player_id === p[0])).map(() => ({ '?column?': 1 })));
+    if (q.startsWith('SELECT price_minor FROM variant_prices')) {
+      const rows = this.prices.filter((x) => x.variant_id === p[0] && Date.parse(x.effective_at) <= Date.now())
+        .sort((a, b) => Date.parse(b.effective_at) - Date.parse(a.effective_at) || b.seq - a.seq);
+      return ok(rows.slice(0, 1).map((x) => ({ price_minor: x.price_minor })));
+    }
+    if (q.startsWith('INSERT INTO variant_prices')) {
+      this.prices.push({ seq: this.prices.length + 1, variant_id: p[0], price_minor: p[1], effective_at: p[2], created_by: p[3] });
+      return ok([]);
+    }
+    if (q.startsWith('SELECT price_minor, effective_at, created_by FROM variant_prices'))
+      return ok(this.prices.filter((x) => x.variant_id === p[0]).sort((a, b) => Date.parse(a.effective_at) - Date.parse(b.effective_at) || a.seq - b.seq));
+    if (q.startsWith('SELECT variant_id, delta, reason, actor, created_at FROM inventory_audit')) return ok(this.restocks.filter((x) => x.variant_id === p[0]));
+    if (q.startsWith('SELECT count(*)::int AS n FROM follows WHERE athlete_id=$1')) return ok([{ n: this.followRows.filter((f) => f.athlete_id === p[0]).length }]);
     if (q === 'SELECT stock FROM inventory WHERE variant_id=$1') {
       const inv = this.inventory.get(p[0]);
       return ok(inv ? [{ stock: inv.stock }] : []);

@@ -42,7 +42,7 @@ export class StoreService {
     for (const i of request.items) {
       const v = await this.db.get('variant', i.variant_id);
       if (!v) throw notFound('VARIANT_NOT_FOUND', `Variant ${i.variant_id} does not exist.`, { variant_id: i.variant_id });
-      prices.set(i.variant_id, v.price_minor);
+      prices.set(i.variant_id, await this.effectivePrice(i.variant_id, v.price_minor));
     }
     let percent = 0;
     if (request.discount_code !== null) {
@@ -136,6 +136,13 @@ export class StoreService {
       await new Promise((r) => setTimeout(r, 100));
     }
     return null;
+  }
+
+  /** FR-2.3 scheduled price changes: the latest price whose effective time has passed, else the catalogue price. */
+  async effectivePrice(variantId: string, base: number): Promise<number> {
+    const r = await this.db.query(
+      'SELECT price_minor FROM variant_prices WHERE variant_id=$1 AND effective_at <= now() ORDER BY effective_at DESC, seq DESC LIMIT 1', [variantId]);
+    return r.rows[0]?.price_minor ?? base;
   }
 
   async inventory(variantId: string) {

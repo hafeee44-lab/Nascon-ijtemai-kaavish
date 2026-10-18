@@ -6,6 +6,10 @@ import { isBool, isInt, isObj, isStr } from '../common/validate.js';
 import { Db } from '../db/db.service.js';
 import { DomainEvents } from '../queue/domain-events.js';
 import { moderate, SenderLimiter } from './moderation.js';
+import { ApiError } from '../common/api-error.js';
+import type { Principal } from '../rbac/policy.js';
+
+const MODERATORS = ['super_admin', 'league_organizer', 'club_manager'];
 
 /** FR-5.2: bounded exponential retry (3 attempts) before a notification lands in the DLQ. */
 export async function deliverWithRetry(send: () => Promise<void>, attempts = 3, baseMs = 5): Promise<{ ok: boolean; attempts: number; error?: string }> {
@@ -103,6 +107,26 @@ export class ModerationService {
     const msg = { seq: Number(ins.rows[0].seq), chat_room_id: b.chat_room_id, sender, text: m.text, flagged: m.flagged, reason: m.reason, at: ins.rows[0].created_at };
     await this.events.emit('chat.message', { ...msg, match_id: b.match_id ?? null });
     return { accepted: true, message: msg };
+  }
+
+  // Moderator kick/mute/unmute — idempotent and race-safe (row lock + deduplicated lists).
+  async act(me: Principal, room: string, b: any) {
+    if (!MODERATORS.includes(me.role)) throw new ApiError(403, 'FORBIDDEN', 'Only moderators can manage the chat.', { chat_room_id: room });
+    if (!isObj(b) || !['kick', 'mute', 'unmute'].includes(b.action) || !isStr(b.user_id) || !b.user_id) throw validationError(['action', 'user_id']);
+    const st = await this.db.tx(async (c) => {
+      await c.query(`INSERT INTO docs(kind,id,data) VALUES('mod_room',$1,$2) ON CONFLICT DO NOTHING`, [room, JSON.stringify({ kicked: [], muted: [] })]);
+      const s = await this.db.getForUpdate(c, 'mod_room', room);
+      if (b.action === 'kick' && !s.kicked.includes(b.user_id)) s.kicked.push(b.user_id);
+      if (b.action === 'mute' && !s.muted.includes(b.user_id)) s.muted.push(b.user_id);
+      if (b.action === 'unmute') {
+        s.kicked = s.kicked.filter((u: string) => u !== b.user_id);
+        s.muted = s.muted.filter((u: string) => u !== b.user_id);
+      }
+      await this.db.put('mod_room', room, s, c);
+      return s;
+    });
+    await this.events.emit('chat.moderation', { chat_room_id: room, action: b.action, user_id: b.user_id, by: me.sub });
+    return { chat_room_id: room, kicked_users: st.kicked, muted_users: st.muted };
   }
 
   async history(room: string) {

@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module.js';
+import { CostreamService } from './costream/costream.js';
 import { Day2Controller } from './day2/day2.controller.js';
 import { live } from './observability/metrics.js';
 import { guestGuard } from './qr_guest/guest-guard.js';
@@ -45,7 +46,32 @@ async function bootstrap() {
   const wss = new WebSocketServer({ noServer: true });
   const day2 = app.get(Day2Controller);
   const bus = app.get(DomainEvents).bus;
+  // FR-3.3: ws://host:8080/ws/costream/{session_id}?player_id=… is broadcaster presence. When a
+  // broadcaster's last socket closes and they do not reconnect within 1 s, hosting hands over (< 1.5 s).
+  const costream = app.get(CostreamService);
+  const presence = new Map<string, number>();
   app.getHttpServer().on('upgrade', (req: any, socket: any, head: any) => {
+    const cs = /^\/ws\/costream\/([A-Za-z0-9_.:-]{1,64})\?(?:.*&)?player_id=([A-Za-z0-9_.:-]{1,64})/.exec(req.url ?? '');
+    if (cs) {
+      const key = `${cs[1]}|${cs[2]}`;
+      return wss.handleUpgrade(req, socket, head, (ws) => {
+        presence.set(key, (presence.get(key) ?? 0) + 1);
+        live.connections++;
+        ws.send(JSON.stringify({ type: 'presence', session_id: cs[1], player_id: cs[2], status: 'connected' }));
+        const onEvent = (e: any) => {
+          if (e.data?.session_id === cs[1] && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: e.type, ...e.data }));
+        };
+        bus.on('event', onEvent);
+        ws.on('close', () => {
+          live.connections--;
+          bus.off('event', onEvent);
+          presence.set(key, (presence.get(key) ?? 1) - 1);
+          setTimeout(() => {
+            if ((presence.get(key) ?? 0) <= 0) void costream.disconnect(cs[1], cs[2]).catch(() => undefined);
+          }, 1000);
+        });
+      });
+    }
     const m = /^\/ws\/matches\/([A-Za-z0-9_.:-]{1,64})/.exec(req.url ?? '');
     if (!m) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => {

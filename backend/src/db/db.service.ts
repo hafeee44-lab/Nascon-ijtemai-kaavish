@@ -31,6 +31,9 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE TABLE IF NOT EXISTS follows (
   follower_id text NOT NULL, athlete_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (follower_id, athlete_id));
+CREATE TABLE IF NOT EXISTS variant_prices (
+  seq bigserial PRIMARY KEY, variant_id text NOT NULL, price_minor int NOT NULL CHECK (price_minor > 0),
+  effective_at timestamptz NOT NULL, created_by text, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS inventory_audit (
   seq bigserial PRIMARY KEY, variant_id text NOT NULL, delta int NOT NULL, reason text, actor text, created_at timestamptz NOT NULL DEFAULT now());
 `;

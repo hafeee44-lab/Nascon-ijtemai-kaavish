@@ -63,7 +63,7 @@ export const DEMO_USERS = [
 
 export async function resetAll(db: Db, seed: number, stock: Record<string, number>) {
   await db.tx(async (c: Tx) => {
-    await c.query('TRUNCATE docs, match_events, inventory, roster_audit, meta, qr_telemetry, dlq, chat_messages, follows, inventory_audit RESTART IDENTITY');
+    await c.query('TRUNCATE docs, match_events, inventory, roster_audit, meta, qr_telemetry, dlq, chat_messages, follows, inventory_audit, variant_prices RESTART IDENTITY');
     for (const s of BASE_SPORTS) await db.put('sport', s.sport_id, s, c);
     await db.put('tenant', 'tenant-alpha', { tenant_id: 'tenant-alpha', name: 'Alpha Sports', logo_url: null, colors: { primary: '#1d4ed8', secondary: '#f59e0b' } }, c);
     await db.put('tenant', 'tenant-beta', { tenant_id: 'tenant-beta', name: 'Beta Athletics', logo_url: null, colors: { primary: '#047857', secondary: '#e11d48' } }, c);
