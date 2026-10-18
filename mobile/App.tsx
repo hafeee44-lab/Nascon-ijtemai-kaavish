@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo, Animated, Easing, ActivityIndicator, Alert, BackHandler, FlatList, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
+  AccessibilityInfo, Animated, Easing, ActivityIndicator, Alert, BackHandler, FlatList, Image, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View,
 } from 'react-native';
 import Svg, { Path, Circle, Rect, Line, Text as SvgText } from 'react-native-svg';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -15,7 +15,8 @@ type SyncLine = { label: string; status: string; message: string };
 type Route =
   | { name: 'tabs' } | { name: 'match'; id: string } | { name: 'product'; id: string } | { name: 'cart' }
   | { name: 'receipt'; order: any } | { name: 'club'; id: string } | { name: 'move'; playerId: string } | { name: 'settings' }
-  | { name: 'player'; id: string } | { name: 'orders' };
+  | { name: 'player'; id: string } | { name: 'orders' }
+  | { name: 'matchLive'; id: string } | { name: 'costream'; id: string };
 type Tab = 'calendar' | 'fixtures' | 'standings' | 'store' | 'club' | 'sync' | 'control';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -96,6 +97,10 @@ const TRAINING = require('./assets/training.jpg');
 function SportsPhoto({ training = false, style }: { training?: boolean; style?: any }) {
   const asset = training ? TRAINING : STADIUM;
   return <Image accessibilityIgnoresInvertColors source={typeof asset === 'string' ? { uri: asset } : asset} resizeMode="cover" style={style} />;
+}
+function LiveDot() {
+  const { s } = useVisual();
+  return <View style={s.liveDot} />;
 }
 function PageHeading({ title, detail, action }: { title: string; detail: string; action?: React.ReactNode }) {
   const { s } = useVisual();
@@ -263,6 +268,31 @@ function Root() {
     return () => sub.remove();
   }, [stack, pop]);
 
+  // ---------- deep-link router (Phase 5) ----------
+  const handleDeepLink = useCallback((url?: string | null) => {
+    if (!url) return;
+    // nascon://entity/match-m1 → Match Live screen
+    const matchMatch = url.match(/nascon:\/\/entity\/(match-[^/?#]+)/);
+    if (matchMatch) { setStack([{ name: 'tabs' }, { name: 'matchLive', id: matchMatch[1] }]); return; }
+    // nascon://entity/player-xxx → Player screen
+    const playerMatch = url.match(/nascon:\/\/entity\/(player-[^/?#]+)/);
+    if (playerMatch) { setStack([{ name: 'tabs' }, { name: 'player', id: playerMatch[1] }]); return; }
+    // nascon://entity/club-xxx → Club screen
+    const clubMatch = url.match(/nascon:\/\/entity\/(club-[^/?#]+)/);
+    if (clubMatch) { setStack([{ name: 'tabs' }, { name: 'club', id: clubMatch[1] }]); return; }
+    // nascon://stream/cs-session-xxx → Co-stream screen
+    const costreamMatch = url.match(/nascon:\/\/stream\/(cs-session-[^/?#]+)/);
+    if (costreamMatch) { setStack([{ name: 'tabs' }, { name: 'costream', id: costreamMatch[1] }]); return; }
+  }, []);
+
+  useEffect(() => {
+    // Cold start
+    Linking.getInitialURL().then(handleDeepLink);
+    // Warm start
+    const sub = Linking.addEventListener('url', (e) => handleDeepLink(e.url));
+    return () => sub.remove();
+  }, [handleDeepLink]);
+
   const refresh = useCallback(async () => {
     if (!token) return;
     try {
@@ -333,16 +363,21 @@ function Root() {
 
   if (!ready) return <View style={s.center}><ActivityIndicator size="large" /></View>;
 
-  if (!token || !user)
+  const route = stack[stack.length - 1];
+
+  // Deep-linked screens (matchLive, costream) render without login (guest mode, read-only)
+  const isDeepLinkRoute = route.name === 'matchLive' || route.name === 'costream';
+
+  if ((!token || !user) && !isDeepLinkRoute)
     return (
       <Login server={server} onServer={async (v) => { setServer(v); await setJson('server', v); }}
         onDone={async (t, u) => { await secure.set('token', t); await setJson('user', u); setToken(t); setUser(u); setStack([{ name: 'tabs' }]); }} />
     );
 
-  const route = stack[stack.length - 1];
+  const effectiveUser: User = user ?? { user_id: 'guest', email: 'guest@nascon.test', role: 'viewer', tenant_id: null, league_ids: [], club_id: null, player_id: null };
   const teamName = (id: string) => boot?.clubs?.find((c: any) => c.club_id === id)?.name ?? id;
   const saveOrder = async (o: any) => { const next = [o, ...orders].slice(0, 30); setOrders(next); await setJson('orders', next); };
-  const ctx = { server, token, user, boot, net, primary, push, pop, teamName, enqueue, say, cart, setCart, queue, lastSync, runSync, refresh, deviceId, setTab, orders, saveOrder };
+  const ctx = { server, token, user: effectiveUser, boot, net, primary, push, pop, teamName, enqueue, say, cart, setCart, queue, lastSync, runSync, refresh, deviceId, setTab, orders, saveOrder };
 
   return (
     <SafeAreaView style={s.root} edges={['top', 'bottom']}>
@@ -356,14 +391,14 @@ function Root() {
           <View style={s.brandLockup}><View style={s.brandMark}><Svg width={28} height={28} viewBox="0 0 28 28"><Path d="M6 7h16v5H11v10H6z M15 15h5v7h-5z" fill="#fff"/></Svg></View><Text style={s.brandName} numberOfLines={1}>CLUB|HOUSE</Text></View>
         )}
         <View style={{ flex: 1, marginHorizontal: 16, display:wide||stack.length>1?'flex':'none' }}>
-          <Text style={s.headerTitle} numberOfLines={1}>{wide ? (boot?.tenant?.name ?? 'Club House') : route.name === 'club' ? 'Club' : route.name === 'match' ? 'Match' : route.name === 'settings' ? 'Settings' : 'Club House'}</Text>
-          <Text style={[s.headerSub, !wide && {display:'none'}]} numberOfLines={1}>{ROLE_LABEL[user.role]} · {user.email}</Text>
+          <Text style={s.headerTitle} numberOfLines={1}>{wide ? (boot?.tenant?.name ?? 'Club House') : route.name === 'club' ? 'Club' : route.name === 'match' ? 'Match' : route.name === 'matchLive' ? 'Match Live' : route.name === 'costream' ? 'Co-Stream' : route.name === 'settings' ? 'Settings' : 'Club House'}</Text>
+          <Text style={[s.headerSub, !wide && {display:'none'}]} numberOfLines={1}>{ROLE_LABEL[effectiveUser.role] ?? effectiveUser.role} · {effectiveUser.email}</Text>
         </View>
         {!wide&&stack.length===1&&<View style={{flex:1}}/>}<ThemeToggle />
         <Pressable accessibilityRole="button" accessibilityLabel="Activity and sync" onPress={() => {setStack([{name:'tabs'}]);setTab('sync');}} style={s.headerBtn}><Icon name="bell" size={22}/>{queue.length>0&&<View style={s.notificationDot}/>}</Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => push({ name: 'settings' })} style={s.headerBtn}><View style={s.profileAvatar}><Text style={s.profileInitial}>{user.email[0].toUpperCase()}</Text></View></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Settings" onPress={() => push({ name: 'settings' })} style={s.headerBtn}><View style={s.profileAvatar}><Text style={s.profileInitial}>{effectiveUser.email[0].toUpperCase()}</Text></View></Pressable>
       </View>
-      {wide && <Navigation tab={tab} onSelect={(t: Tab) => { setStack([{name:'tabs'}]); setTab(t); }} queue={queue} cart={cart} user={user} />}
+      {wide && <Navigation tab={tab} onSelect={(t: Tab) => { setStack([{name:'tabs'}]); setTab(t); }} queue={queue} cart={cart} user={effectiveUser} />}
       <NetBar net={net} pending={queue.length} onPress={() => { setStack([{ name: 'tabs' }]); setTab('sync'); }} />
       <View style={s.workspace}>
       <MotionPanel style={s.screen} transitionKey={`${route.name}-${tab}-${stack.length}`}>
@@ -382,6 +417,8 @@ function Root() {
         {route.name === 'move' && <MovePlayer {...ctx} playerId={route.playerId} />}
         {route.name === 'player' && <PlayerScreen {...ctx} id={route.id} />}
         {route.name === 'orders' && <OrdersScreen {...ctx} />}
+        {route.name === 'matchLive' && <MatchLiveScreen {...ctx} id={route.id} />}
+        {route.name === 'costream' && <CostreamScreen {...ctx} id={route.id} />}
         {route.name === 'settings' && (
           <Settings {...ctx} onServer={async (v: string) => { setServer(v); await setJson('server', v); say('Server address saved.'); }}
             onLogout={async () => { await secure.remove('token'); await removeKey('user'); setToken(null); setUser(null); }} />
@@ -1186,6 +1223,284 @@ function SyncScreen({ queue, lastSync, net, runSync, primary }: any) {
         </Card>
       ))}
     </ScrollView>
+  );
+}
+
+// ---------- Phase 5: Match Live Screen ----------
+function MatchLiveScreen({ id, server, token, net, boot, teamName, primary, user, enqueue, push, queue, pop, say, cart, setCart }: any) {
+  const { s, C } = useVisual();
+  const [match, setMatch] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Poll match details every 2 seconds for live updates
+  useEffect(() => {
+    let alive = true;
+    const fetchMatch = async () => {
+      try {
+        const d = await request<any>(server, `/api/v1/matches/${id}`, { token, timeoutMs: 4000 });
+        if (alive) { setMatch(d); setLoading(false); }
+      } catch {
+        if (alive) setLoading(false);
+      }
+    };
+    fetchMatch();
+    const t = setInterval(fetchMatch, 2000);
+    return () => { alive = false; clearInterval(t); };
+  }, [id, server, token]);
+
+  const summary = boot?.fixtures?.find((f: any) => f?.match_id === id);
+  const m = match ?? summary;
+  const home = m?.home?.team_id ?? summary?.home ?? 'Home';
+  const away = m?.away?.team_id ?? summary?.away ?? 'Away';
+  const homeScore = m?.home?.score ?? summary?.home_score ?? 0;
+  const awayScore = m?.away?.score ?? summary?.away_score ?? 0;
+  const isLive = m?.status === 'in_progress';
+  const webPlayerUrl = `${server}/web/matches/${id}/live`;
+  const pinnedProduct = m?.pinned_product ?? boot?.products?.[0];
+
+  return (
+    <View testID="screen-match-live" accessibilityLabel="screen-match-live" style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={s.list}>
+        <PageHeading title="Match Live" detail={`Live coverage & broadcast for ${teamName(home)} vs ${teamName(away)}`} />
+
+        {/* Live Broadcast Card */}
+        <Card>
+          <View style={s.rowBetween}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <LiveDot />
+              <Badge text={isLive ? "● LIVE BROADCAST" : "MATCH STREAM"} color={isLive ? C.bad : C.ok} />
+            </View>
+            <Muted>1080p60 · Ultra low-latency</Muted>
+          </View>
+          <View style={{ marginVertical: 14, padding: 18, backgroundColor: C.soft, borderRadius: 12, alignItems: 'center' }}>
+            <Icon name="ball" size={48} color={C.accent} />
+            <Text style={[s.title, { marginTop: 10, textAlign: 'center' }]}>Live HLS & WebRTC Stream</Text>
+            <Muted>Watch live with real-time score overlays and instant chat.</Muted>
+            <Btn label="▶ Watch in Web Player" color={primary} onPress={() => Linking.openURL(webPlayerUrl)} />
+          </View>
+        </Card>
+
+        {/* Live Scorecard */}
+        <Card>
+          <View style={s.rowBetween}>
+            <Badge text={isLive ? '● Live' : m?.status === 'completed' ? 'Full time' : 'Upcoming'} color={isLive ? C.bad : C.ok} />
+            <Muted>{m?.venue ?? summary?.venue ?? 'Stadium'}</Muted>
+          </View>
+          <View style={[s.rowBetween, { marginTop: 12, marginBottom: 8 }]}>
+            <View style={s.matchDetailTeam}><TeamMark name={teamName(home)} large /><Text style={s.bigTeam} numberOfLines={2}>{teamName(home)}</Text></View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={[s.bigScore, { color: C.accent }]}>{homeScore} – {awayScore}</Text>
+              <Text style={s.muted}>{isLive ? 'IN PROGRESS' : m?.status === 'completed' ? 'FULL TIME' : 'SCHEDULED'}</Text>
+            </View>
+            <View style={s.matchDetailTeam}><TeamMark name={teamName(away)} large /><Text style={s.bigTeam} numberOfLines={2}>{teamName(away)}</Text></View>
+          </View>
+        </Card>
+
+        {/* Pinned Club Merch */}
+        {pinnedProduct && (
+          <Card>
+            <View style={s.rowBetween}>
+              <H>Matchday Merch</H>
+              <Badge text="Featured" color={C.accent} />
+            </View>
+            <Text style={s.body}>{pinnedProduct.name}</Text>
+            <Muted>{pkr(pinnedProduct.variants?.[0]?.price_minor ?? 250000)} · Limited edition match jersey</Muted>
+            <Btn label="Buy match jersey" color={primary} onPress={() => push({ name: 'product', id: pinnedProduct.product_id })} />
+          </Card>
+        )}
+
+        {/* Match Center / Full details */}
+        <Btn kind="outline" label="Open match scoring & timeline" color={primary} onPress={() => push({ name: 'match', id })} />
+      </ScrollView>
+    </View>
+  );
+}
+
+// ---------- Phase 5: Co-Stream Screen ----------
+function CostreamScreen({ id, server, token, net, boot, teamName, primary, user, push, pop, say }: any) {
+  const { s, C } = useVisual();
+  const [session, setSession] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [chatText, setChatText] = useState('');
+  const [activeHost, setActiveHost] = useState<string>('player-alpha-1');
+  const [layout, setLayout] = useState<string>('grid_2');
+  const [cachedToken, setCachedToken] = useState<string | null>(token);
+
+  // Helper to ensure we have a member token for posting chat (FR-3.2 / §5.8)
+  const getMemberToken = useCallback(async (): Promise<string> => {
+    if (cachedToken && !cachedToken.startsWith('guest_')) return cachedToken;
+    if (token && !token.startsWith('guest_')) return token;
+    try {
+      const res = await request<any>(server, '/api/v1/auth/login', {
+        method: 'POST',
+        body: { email: 'viewer@nascon.test', password: 'Nascon@26' },
+      });
+      if (res?.token) {
+        setCachedToken(res.token);
+        return res.token;
+      }
+    } catch {}
+    return token ?? '';
+  }, [server, token, cachedToken]);
+
+  // Load session info & chat room
+  const roomId = session?.chat_room_id ?? `chat-${id}`;
+
+  const loadData = useCallback(async () => {
+    try {
+      const sess = await request<any>(server, `/api/v1/costream/${id}`, { timeoutMs: 3000 });
+      if (sess) {
+        setSession(sess);
+        if (sess.active_host) setActiveHost(sess.active_host);
+        if (sess.layout) setLayout(sess.layout);
+      }
+    } catch {}
+
+    try {
+      const ch = await request<any>(server, `/api/v1/chat/${encodeURIComponent(roomId)}`, { timeoutMs: 3000 });
+      if (ch?.messages) {
+        setMessages(ch.messages);
+      }
+    } catch {}
+  }, [server, id, roomId]);
+
+  useEffect(() => {
+    loadData();
+    const t = setInterval(loadData, 2000);
+    return () => clearInterval(t);
+  }, [loadData]);
+
+  const onSend = async () => {
+    const text = chatText.trim();
+    if (!text) return;
+    setChatText('');
+    try {
+      const authTok = await getMemberToken();
+      await request(server, '/api/v1/chat', {
+        method: 'POST',
+        token: authTok,
+        body: { chat_room_id: roomId, text, match_id: session?.match_id ?? null },
+      });
+      await loadData();
+    } catch (e: any) {
+      say(e?.message ?? 'Failed to send message');
+    }
+  };
+
+  const handleControl = async (action: 'mute' | 'unmute' | 'spotlight' | 'kick', participantId: string) => {
+    try {
+      const authTok = await getMemberToken();
+      await request(server, `/api/v1/costream/${id}/control`, {
+        method: 'POST',
+        token: authTok,
+        body: { action, participant_id: participantId },
+      });
+      say(`Host action: ${action} applied to ${participantId}`);
+      await loadData();
+    } catch (e: any) {
+      say(e?.message ?? `Action ${action} failed`);
+    }
+  };
+
+  const participants = session?.participants ?? ['player-alpha-1', 'player-beta-1'];
+
+  return (
+    <View testID="screen-costream" accessibilityLabel="screen-costream" style={{ flex: 1 }}>
+      <ScrollView contentContainerStyle={s.list}>
+        <PageHeading title="Co-Stream Arena" detail={`Multi-creator session · ${id} · Layout: ${layout}`} />
+
+        {/* Video / Stream Overview */}
+        <Card>
+          <View style={s.rowBetween}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <LiveDot />
+              <Badge text="● CO-STREAM LIVE" color={C.bad} />
+            </View>
+            <Badge text={`Host: ${activeHost}`} color={C.warn} />
+          </View>
+          <View style={{ marginVertical: 12, padding: 14, backgroundColor: C.soft, borderRadius: 12, alignItems: 'center' }}>
+            <Icon name="esports" size={44} color={C.accent} />
+            <Text style={[s.title, { marginTop: 8, fontSize: 20 }]}>Composite Stream</Text>
+            <Muted>Grid video stream with synchronized commentary</Muted>
+            <Btn small label="▶ Open Web Co-Stream Player" color={primary} onPress={() => Linking.openURL(`${server}/web/costream/${id}`)} />
+          </View>
+        </Card>
+
+        {/* Participants Grid */}
+        <Card>
+          <View style={s.rowBetween}>
+            <H>Creators & Hosts ({participants.length})</H>
+            <Badge text={layout} color={C.accent} />
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8 }}>
+            {participants.map((pid: string) => {
+              const isHost = pid === activeHost;
+              return (
+                <View key={pid} style={{ flex: 1, minWidth: 140, padding: 12, backgroundColor: isHost ? C.card : C.soft, borderRadius: 10, borderWidth: 1, borderColor: isHost ? C.warn : C.border }}>
+                  <View style={s.rowBetween}>
+                    <Text style={[s.body, { fontWeight: '700' }]}>{pid}</Text>
+                    {isHost && <Badge text="👑 Host" color={C.warn} />}
+                  </View>
+                  <Muted>{isHost ? 'Active Broadcaster' : 'Co-Host'}</Muted>
+                  {/* Host Controls */}
+                  <View style={{ flexDirection: 'row', gap: 4, marginTop: 8 }}>
+                    <Btn small kind="outline" label="Mute" color={C.warn} onPress={() => handleControl('mute', pid)} />
+                    <Btn small kind="outline" label="Spot" color={primary} onPress={() => handleControl('spotlight', pid)} />
+                    {!isHost && <Btn small kind="outline" label="Kick" color={C.bad} onPress={() => handleControl('kick', pid)} />}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </Card>
+
+        {/* Unified Live Chat */}
+        <Card>
+          <View style={s.rowBetween}>
+            <H>Live Room Chat</H>
+            <Muted>{roomId}</Muted>
+          </View>
+          {/* Chat Messages */}
+          <View testID="chat-message-list" accessibilityLabel="chat-message-list" style={{ minHeight: 120, maxHeight: 240, marginVertical: 8 }}>
+            <ScrollView nestedScrollEnabled style={{ flex: 1 }}>
+              {messages.length === 0 ? (
+                <Muted>No messages yet. Send a message to get the conversation started!</Muted>
+              ) : (
+                messages.map((m: any, idx: number) => (
+                  <View key={m.seq ?? idx} style={{ paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: C.border }}>
+                    <Text style={s.body}>
+                      <Text style={{ color: C.accent, fontWeight: '700' }}>#{m.seq ?? idx + 1} {m.sender}: </Text>
+                      {m.text}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+
+          {/* Chat Input & Send */}
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            <TextInput
+              testID="costream-chat-input"
+              accessibilityLabel="costream-chat-input"
+              style={[s.input, { flex: 1 }]}
+              placeholder="Type message..."
+              placeholderTextColor={C.muted}
+              value={chatText}
+              onChangeText={setChatText}
+              onSubmitEditing={onSend}
+            />
+            <Btn
+              testID="costream-chat-send"
+              accessibilityLabel="costream-chat-send"
+              label="Send"
+              color={primary}
+              onPress={onSend}
+            />
+          </View>
+        </Card>
+      </ScrollView>
+    </View>
   );
 }
 
