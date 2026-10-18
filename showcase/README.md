@@ -16,4 +16,14 @@ node showcase/build.mjs clubhouse-live.vercel.app
 
 ## Deploy
 
-Use the Vercel project `clubhouse-live` with **Root Directory** `showcase/dist`, framework **Other** and no build command. The Git branch is `portfolio-ui`.
+Live at **https://clubhouse-live.vercel.app** (Vercel project `havlen/clubhouse-live`). `dist/` is git-ignored build output, so deploy it from a local build:
+
+```bash
+npx vercel login
+cd showcase/dist
+npx vercel link --yes --project clubhouse-live --scope havlen
+rm -f .env.local                          # vercel link writes a token here; never deploy or commit it
+npx vercel deploy --prod --yes --scope havlen
+```
+
+If the project ever gets a different domain, rebuild with that host so the QR codes point at it.
