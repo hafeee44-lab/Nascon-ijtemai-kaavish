@@ -10,7 +10,8 @@ import os
 import sys
 import urllib.request
 
-BASE = os.environ.get("BASE_URL", "http://localhost:8080")
+# API_URL = how this runner reaches the API (BASE_URL is reserved for the grid browsers).
+BASE = os.environ.get("API_URL", "http://localhost:8080").rstrip("/")
 SALT = os.environ.get("DAY1_SALT", "demo-salt")
 FAILS = []
 
