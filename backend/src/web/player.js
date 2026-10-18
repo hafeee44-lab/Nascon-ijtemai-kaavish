@@ -178,11 +178,22 @@
     var note = $('offline-note');
     if (src && v.canPlayType('application/vnd.apple.mpegurl')) v.src = src;
     else if (src) v.src = src; // HLS-capable browsers play it; others keep the overlay message
-    v.addEventListener('playing', function () { if (note) note.hidden = true; });
+    // A playlist requested while the media server is still warming up fails once and the element never
+    // retries on its own, so reload the source with backoff (2 s, 4 s … capped at 10 s) until it plays.
+    var retries = 0, wanted = false;
+    v.addEventListener('playing', function () { retries = 0; if (note) note.hidden = true; });
+    v.addEventListener('error', function () {
+      if (!src) return;
+      if (note) { note.hidden = false; note.textContent = 'Connecting to stream…'; }
+      setTimeout(function () {
+        v.src = src; v.load();
+        if (wanted) v.play().catch(function () {});
+      }, Math.min(10000, 2000 * Math.pow(2, retries++)));
+    });
     var play = $('ctl-play'), mute = $('ctl-mute'), full = $('ctl-full');
     if (play) play.addEventListener('click', function () {
-      if (v.paused) { v.play().catch(function () { toast('The broadcast has not started yet.'); }); play.textContent = 'Pause'; play.setAttribute('aria-label', 'Pause'); }
-      else { v.pause(); play.textContent = 'Play'; play.setAttribute('aria-label', 'Play'); }
+      if (v.paused) { wanted = true; v.play().catch(function () { if (!src) toast('The broadcast has not started yet.'); }); play.textContent = 'Pause'; play.setAttribute('aria-label', 'Pause'); }
+      else { wanted = false; v.pause(); play.textContent = 'Play'; play.setAttribute('aria-label', 'Play'); }
     });
     if (mute) mute.addEventListener('click', function () {
       v.muted = !v.muted;
